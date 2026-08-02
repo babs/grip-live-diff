@@ -41,6 +41,7 @@ This project is a reimplementation of the original Python-based [grip](https://g
 - math expressions (code, inline, block)
 - gh issues and prs #46 and grafana/grafana#22
 - toggle state is preserved in [sessionStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/sessionStorage)
+- highlight what changed on disk since the file was opened, down to the word
 
 This is an inline $\sqrt{3x-1}+(1+x)^2$ function.
 
@@ -125,6 +126,19 @@ go-grip --no-reload README.md
 
 The browser page title is derived from the Markdown filename (`my-guide_v2.md` becomes `My Guide V2`).
 
+### Seeing what changed
+
+The `±` button next to the theme switch shows what moved on disk since the file was opened. While the
+diff is off it carries a dot whenever the file differs from the version you opened; once a diff is on it
+is highlighted instead. Clicking it cycles through three states:
+
+1. off — the document as it is now;
+2. **since open** (`?diff=open`) — every change since you opened the file;
+3. **last edit** (`?diff=last`) — only the change brought by the most recent save.
+
+Changes are highlighted inside the rendered document, word by word: insertions in green, removals struck
+through in red. Diff mode survives the auto-reload, so the highlights refresh on every save. **Mark as
+read** takes the version currently on disk as the new comparison point.
 
 To terminate the current server simply press `CTRL-C`.
 

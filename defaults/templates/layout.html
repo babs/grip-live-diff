@@ -24,6 +24,7 @@
     <link rel="stylesheet" href="/static/css/github-clipboard.css" />
     <link rel="stylesheet" href="/static/css/mathjax.css" />
     <link rel="stylesheet" href="/static/css/theme-switch.css" />
+    <link rel="stylesheet" href="/static/css/github-diff.css" />
     <script src="/static/js/theme-switch.js"></script>
     <script src="/static/js/clipboard-copy.js"></script>
     <script src="/static/js/mathjax-options.js"></script>
@@ -36,7 +37,24 @@
     <button id="theme-toggle" class="theme-toggle" title="Toggle theme">
       <span class="theme-toggle-icon"></span>
     </button>
+    <a
+      class="theme-toggle diff-toggle{{if .DiffMode}} diff-toggle-active{{else if .HasChanges}} diff-toggle-changed{{end}}"
+      href="{{ .DiffHref }}"
+      title="{{ .DiffTitle }}"
+      aria-label="{{ .DiffTitle }}"
+    >
+      <span class="theme-toggle-icon">&plusmn;</span>
+    </a>
     <div class="container">
+      {{if .DiffMode}}
+      <div class="diff-banner">
+        <span>{{ .DiffLabel }}</span>
+        <form method="post" action="/__baseline">
+          <input type="hidden" name="path" value="{{ .Path }}" />
+          <button type="submit">Mark as read</button>
+        </form>
+      </div>
+      {{end}}
       <div {{if .BoundingBox }} class="container-inner" {{end}}>
         {{ .Content }}
       </div>

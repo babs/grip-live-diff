@@ -1,14 +1,252 @@
 package internal
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// diffFixture serves docPath out of a temp dir and lets the test rewrite it on the fly.
+type diffFixture struct {
+	t       *testing.T
+	dir     string
+	handler http.Handler
+}
+
+const docPath = "/doc.md"
+
+func newDiffFixture(t *testing.T, content string) *diffFixture {
+	t.Helper()
+
+	f := &diffFixture{t: t, dir: t.TempDir()}
+	f.handler = NewServer("localhost", 6419, false, false, false, NewParser()).newHandler(http.Dir(f.dir))
+	f.write(content)
+	return f
+}
+
+func (f *diffFixture) write(content string) {
+	f.t.Helper()
+	if err := os.WriteFile(filepath.Join(f.dir, "doc.md"), []byte(content), 0o644); err != nil {
+		f.t.Fatalf("write doc.md: %v", err)
+	}
+}
+
+func (f *diffFixture) get(target string) string {
+	f.t.Helper()
+
+	recorder := httptest.NewRecorder()
+	f.handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+	if recorder.Code != http.StatusOK {
+		f.t.Fatalf("GET %s: expected status %d, got %d", target, http.StatusOK, recorder.Code)
+	}
+	return recorder.Body.String()
+}
+
+func (f *diffFixture) reset(path string) *httptest.ResponseRecorder {
+	f.t.Helper()
+
+	body := strings.NewReader(url.Values{"path": {path}}.Encode())
+	req := httptest.NewRequest(http.MethodPost, "/__baseline", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	recorder := httptest.NewRecorder()
+	f.handler.ServeHTTP(recorder, req)
+	return recorder
+}
+
+func TestDiffModeAnnotatesChangesSinceOpen(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
+	f.get(docPath)
+
+	f.write("# Title\n\nalpha charlie\n")
+	body := f.get(docPath + "?diff=open")
+
+	if !strings.Contains(body, `<ins class="gg-ins">charlie</ins>`) {
+		t.Fatalf("expected the new word to be marked as inserted, got %q", body)
+	}
+	if !strings.Contains(body, `<del class="gg-del">bravo`) {
+		t.Fatalf("expected the replaced word to be marked as deleted, got %q", body)
+	}
+	if !strings.Contains(body, "Changes since this file was opened") {
+		t.Fatalf("expected the diff banner, got %q", body)
+	}
+}
+
+func TestNormalModeCarriesNoDiffMarkup(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
+	f.get(docPath)
+
+	f.write("# Title\n\nalpha charlie\n")
+	body := f.get(docPath)
+
+	if strings.Contains(body, "gg-ins") || strings.Contains(body, "gg-del") {
+		t.Fatalf("expected no diff markup outside diff mode, got %q", body)
+	}
+	if !strings.Contains(body, "diff-toggle-changed") {
+		t.Fatalf("expected the toggle to be flagged as changed, got %q", body)
+	}
+}
+
+func TestDiffLastOnlyShowsTheMostRecentEdit(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
+	f.get(docPath)
+	f.write("# Title\n\nalpha charlie\n")
+	f.get(docPath)
+	f.write("# Title\n\ndelta charlie\n")
+	f.get(docPath)
+
+	since := f.get(docPath + "?diff=open")
+	if !strings.Contains(since, `<ins class="gg-ins">delta charlie</ins>`) {
+		t.Fatalf("expected both edits against the opened version, got %q", since)
+	}
+
+	last := f.get(docPath + "?diff=last")
+	if !strings.Contains(last, `<ins class="gg-ins">delta</ins>`) {
+		t.Fatalf("expected the last edit to be marked, got %q", last)
+	}
+	if strings.Contains(last, "charlie</ins>") {
+		t.Fatalf("expected the earlier edit not to be marked, got %q", last)
+	}
+}
+
+// A reload without an edit must not shift the "previous version" reference, otherwise the
+// last-edit diff would silently degrade to "nothing changed".
+func TestReloadWithoutEditKeepsThePreviousReference(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
+	f.get(docPath)
+	f.write("# Title\n\nalpha charlie\n")
+	f.get(docPath)
+	f.get(docPath)
+	f.get(docPath)
+
+	body := f.get(docPath + "?diff=last")
+	if !strings.Contains(body, `<ins class="gg-ins">charlie</ins>`) {
+		t.Fatalf("expected the last edit to still be visible after reloads, got %q", body)
+	}
+}
+
+func TestDiffModeWithoutChangesReportsNothing(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
+	f.get(docPath)
+
+	body := f.get(docPath + "?diff=open")
+	if !strings.Contains(body, "No changes since this file was opened") {
+		t.Fatalf("expected the empty-diff banner, got %q", body)
+	}
+	if strings.Contains(body, "gg-ins") || strings.Contains(body, "gg-del") {
+		t.Fatalf("expected no diff markup for an unchanged file, got %q", body)
+	}
+}
+
+func TestResetBaselineClearsTheChangedState(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
+	f.get(docPath)
+	f.write("# Title\n\nalpha charlie\n")
+	f.get(docPath)
+
+	recorder := f.reset(docPath)
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("expected status %d, got %d", http.StatusSeeOther, recorder.Code)
+	}
+	if got := recorder.Header().Get("Location"); got != docPath {
+		t.Fatalf("expected a redirect back to %s, got %q", docPath, got)
+	}
+
+	body := f.get(docPath + "?diff=open")
+	if !strings.Contains(body, "No changes since this file was opened") {
+		t.Fatalf("expected the reset to clear the changes, got %q", body)
+	}
+}
+
+// Mermaid, MathJax and highlighted code must survive diff mode: annotating their content
+// would stop them from rendering at all.
+func TestDiffModeLeavesRenderedBlocksIntact(t *testing.T) {
+	t.Parallel()
+
+	const doc = "# Doc\n\n```mermaid\ngraph TD;\nA-->%s;\n```\n\nInline $\\sqrt{%s}$ math.\n\n" +
+		"```go\nfmt.Println(\"%s\")\n```\n"
+
+	f := newDiffFixture(t, fmt.Sprintf(doc, "B", "3x-1", "hello"))
+	f.get(docPath)
+
+	f.write(fmt.Sprintf(doc, "C", "4x-1", "world"))
+	body := f.get(docPath + "?diff=open")
+
+	if !strings.Contains(body, "<pre class=\"mermaid\">graph TD;\nA--&gt;C;\n</pre>") {
+		t.Fatalf("expected the new mermaid block to stay intact, got %q", body)
+	}
+	if !strings.Contains(body, `<span class="math inline">\(\sqrt{4x-1}\)</span>`) {
+		t.Fatalf("expected the new math span to stay intact, got %q", body)
+	}
+	if !strings.Contains(body, `<ins class="gg-ins">&#34;world&#34;</ins>`) {
+		t.Fatalf("expected the code change to be annotated, got %q", body)
+	}
+	for _, opening := range []string{"<pre class=\"mermaid\"><ins", `<span class="math inline"><ins`} {
+		if strings.Contains(body, opening) {
+			t.Fatalf("expected no annotation inside %q, got %q", opening, body)
+		}
+	}
+}
+
+func TestResetBaselineRefusesCrossOriginRequests(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
+	f.get(docPath)
+	f.write("# Title\n\nalpha charlie\n")
+	f.get(docPath)
+
+	body := strings.NewReader(url.Values{"path": {docPath}}.Encode())
+	req := httptest.NewRequest(http.MethodPost, "/__baseline", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "http://evil.example")
+
+	recorder := httptest.NewRecorder()
+	f.handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
+	}
+
+	if page := f.get(docPath + "?diff=open"); !strings.Contains(page, "gg-ins") {
+		t.Fatalf("expected the reference to survive the refused request, got %q", page)
+	}
+}
+
+func TestResetBaselineRejectsForeignTargets(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n")
+
+	for _, target := range []string{"//evil.example/doc.md", "https://evil.example/doc.md", "/doc.txt", "/missing.md"} {
+		if code := f.reset(target).Code; code == http.StatusSeeOther {
+			t.Fatalf("expected %q to be rejected, got status %d", target, code)
+		}
+	}
+
+	recorder := httptest.NewRecorder()
+	f.handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/__baseline?path="+docPath, nil))
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected GET to be refused, got status %d", recorder.Code)
+	}
+}
 
 func TestDirectoryListingIgnoresCacheValidators(t *testing.T) {
 	t.Parallel()
