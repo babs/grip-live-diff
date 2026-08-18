@@ -1,6 +1,6 @@
 module github.com/chrishrb/go-grip
 
-go 1.25
+go 1.26
 
 require (
 	github.com/aarol/reload v1.2.0
