@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,6 +29,31 @@ func newDiffFixture(t *testing.T, content string) *diffFixture {
 	f.handler = NewServer("localhost", 6419, false, false, false, NewParser()).newHandler(http.Dir(f.dir))
 	f.write(content)
 	return f
+}
+
+// newGitDiffFixture commits the initial content, so ?diff=head has a reference. The repo
+// must exist before the handler is built: that is when the git work tree is probed.
+func newGitDiffFixture(t *testing.T, content string, commit bool) *diffFixture {
+	t.Helper()
+
+	f := &diffFixture{t: t, dir: t.TempDir()}
+	f.write(content)
+	f.git("init", "-q")
+	if commit {
+		f.git("add", "doc.md")
+		f.git("-c", "user.email=go-grip@test", "-c", "user.name=go-grip",
+			"-c", "commit.gpgsign=false", "commit", "-q", "-m", "initial")
+	}
+	f.handler = NewServer("localhost", 6419, false, false, false, NewParser()).newHandler(http.Dir(f.dir))
+	return f
+}
+
+func (f *diffFixture) git(args ...string) {
+	f.t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", f.dir}, args...)...).CombinedOutput()
+	if err != nil {
+		f.t.Fatalf("git %v: %v (%s)", args, err, out)
+	}
 }
 
 func (f *diffFixture) write(content string) {
@@ -151,6 +177,75 @@ func TestDiffModeWithoutChangesReportsNothing(t *testing.T) {
 	}
 	if strings.Contains(body, "gg-ins") || strings.Contains(body, "gg-del") {
 		t.Fatalf("expected no diff markup for an unchanged file, got %q", body)
+	}
+}
+
+func TestDiffHeadComparesWithTheLastCommit(t *testing.T) {
+	t.Parallel()
+
+	f := newGitDiffFixture(t, "# Title\n\nalpha bravo\n", true)
+	f.get(docPath)
+	f.write("# Title\n\nalpha charlie\n")
+
+	body := f.get(docPath + "?diff=" + diffModeHead)
+	if !strings.Contains(body, `<ins class="gg-ins">charlie</ins>`) {
+		t.Fatalf("expected the uncommitted change to be marked, got %q", body)
+	}
+	if !strings.Contains(body, "Changes since the last commit") {
+		t.Fatalf("expected the commit banner, got %q", body)
+	}
+	// The git reference is not ours to move.
+	if strings.Contains(body, "Mark as read") {
+		t.Fatalf("expected no reset button against the commit reference, got %q", body)
+	}
+}
+
+// A file the repository does not know about has no committed version: say so instead of
+// reporting the whole document as new.
+func TestDiffHeadOnAnUntrackedFileReportsNoReference(t *testing.T) {
+	t.Parallel()
+
+	f := newGitDiffFixture(t, "# Title\n\nalpha bravo\n", false)
+	f.get(docPath)
+
+	body := f.get(docPath + "?diff=" + diffModeHead)
+	if !strings.Contains(body, "This file has no committed version to compare with") {
+		t.Fatalf("expected the missing-reference banner, got %q", body)
+	}
+	if strings.Contains(body, "gg-ins") || strings.Contains(body, "gg-del") {
+		t.Fatalf("expected no diff markup without a reference, got %q", body)
+	}
+}
+
+// A git that cannot run is a broken reference, not a missing one: the banner must not
+// claim the file was never committed.
+func TestDiffHeadWithBrokenGitReportsUnreadableReference(t *testing.T) {
+	f := newGitDiffFixture(t, "# Title\n\nalpha bravo\n", true)
+	f.get(docPath)
+
+	t.Setenv("PATH", "")
+	body := f.get(docPath + "?diff=" + diffModeHead)
+	if !strings.Contains(body, "The commit reference could not be read") {
+		t.Fatalf("expected the unreadable-reference banner, got %q", body)
+	}
+	if strings.Contains(body, "no committed version") {
+		t.Fatalf("expected no missing-version claim when git is broken, got %q", body)
+	}
+}
+
+func TestDiffToggleSkipsTheCommitStateOutsideAGitRepository(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
+	if isGitWorkTree(http.Dir(f.dir)) {
+		t.Skip("TMPDIR sits inside a git work tree: this test needs a directory outside any repository")
+	}
+
+	if body := f.get(docPath + "?diff=" + diffModeLast); !strings.Contains(body, `href="`+docPath+`"`) {
+		t.Fatalf("expected the toggle to cycle back to the plain document, got %q", body)
+	}
+	if body := f.get(docPath + "?diff=" + diffModeHead); strings.Contains(body, "diff-banner") {
+		t.Fatalf("expected the commit reference to be unavailable, got %q", body)
 	}
 }
 

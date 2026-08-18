@@ -2,16 +2,20 @@ package internal
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"path"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -27,6 +31,7 @@ const defaultHTMLTitle = "go-grip - markdown preview"
 const (
 	diffModeOpen = "open" // compare with the version served when the file was first opened
 	diffModeLast = "last" // compare with the content as it was before the last change
+	diffModeHead = "head" // compare with the file as committed in git HEAD
 )
 
 // snapshot holds the two reference versions of a file, plus the last content served.
@@ -46,6 +51,43 @@ type Server struct {
 
 	mu        sync.Mutex
 	snapshots map[string]*snapshot
+}
+
+// gitTimeout bounds the git calls: a slow repository must not hold a request open.
+const gitTimeout = 5 * time.Second
+
+// errNoCommittedVersion reports that git ran and has no HEAD version of the file —
+// untracked, or the repository has no commit yet.
+var errNoCommittedVersion = errors.New("no committed version")
+
+// gitHeadContent returns the file as committed in HEAD. A missing committed version is
+// reported as errNoCommittedVersion; any other failure (timeout, git unavailable) is not.
+func gitHeadContent(ctx context.Context, dir http.Dir, name string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+
+	// "HEAD:./name" resolves relative to -C, and the "./" also keeps a leading dash in a
+	// filename from being read as an option.
+	//nolint:gosec // name has already been resolved to a regular file under dir
+	out, err := exec.CommandContext(ctx, "git", "-C", string(dir), "show", "HEAD:./"+strings.TrimPrefix(name, "/")).Output()
+	if err != nil {
+		// An ExitError with a live context is git itself answering "not there"; anything
+		// else means the reference could not be read at all.
+		var exitErr *exec.ExitError
+		if ctx.Err() == nil && errors.As(err, &exitErr) {
+			err = errNoCommittedVersion
+		}
+		return nil, fmt.Errorf("git show HEAD of %s: %w", name, err)
+	}
+	return out, nil
+}
+
+func isGitWorkTree(dir http.Dir) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+
+	//nolint:gosec // fixed arguments
+	return exec.CommandContext(ctx, "git", "-C", string(dir), "rev-parse", "--is-inside-work-tree").Run() == nil
 }
 
 func NewServer(host string, port int, boundingBox bool, browser bool, enableReload bool, parser *Parser) *Server {
@@ -136,6 +178,9 @@ func (s *Server) Serve(file string) error {
 }
 
 func (s *Server) newHandler(dir http.Dir) http.Handler {
+	// Probed once: it decides whether the toggle offers the "last commit" reference at all.
+	hasGit := isGitWorkTree(dir)
+
 	fileServer := http.FileServer(dir)
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.FileServer(http.FS(defaults.StaticFiles)))
@@ -161,7 +206,7 @@ func (s *Server) newHandler(dir http.Dir) http.Handler {
 					return
 				}
 
-				page, err := s.buildPage(r, bytes, htmlContent)
+				page, err := s.buildPage(r, dir, hasGit, bytes, htmlContent)
 				if err != nil {
 					log.Println(err)
 				}
@@ -210,13 +255,17 @@ type htmlStruct struct {
 	CssCodeDark  template.CSS
 	Title        string
 
-	Path       string
-	DiffMode   string
-	HasChanges bool
-	DiffEmpty  bool
-	DiffHref   string
-	DiffTitle  string
-	DiffLabel  string
+	Path            string
+	DiffMode        string
+	HasChanges      bool
+	HasGit          bool
+	DiffEmpty       bool
+	DiffUnavailable bool
+	DiffRefMissing  bool
+	CanMarkAsRead   bool
+	DiffHref        string
+	DiffTitle       string
+	DiffLabel       string
 }
 
 func (s *Server) pageTitle(filename string) string {
@@ -249,8 +298,11 @@ func formatFilenameTitle(filename string) string {
 	return strings.Join(words, " ")
 }
 
-// diffControls fills the labels of the toggle, which cycles off → since open → last edit.
+// diffControls fills the labels of the toggle, which cycles off → since open → last edit
+// → last commit (only inside a git work tree) → off.
 func (h *htmlStruct) diffControls() {
+	h.CanMarkAsRead = h.DiffMode != diffModeHead // the git reference is not ours to move
+
 	switch h.DiffMode {
 	case diffModeOpen:
 		h.DiffHref = h.Path + "?diff=" + diffModeLast
@@ -262,9 +314,26 @@ func (h *htmlStruct) diffControls() {
 	case diffModeLast:
 		h.DiffHref = h.Path
 		h.DiffTitle = "Comparing with the version before the last edit — click to hide changes"
+		if h.HasGit {
+			h.DiffHref = h.Path + "?diff=" + diffModeHead
+			h.DiffTitle = "Comparing with the version before the last edit — switch to the last commit"
+		}
 		h.DiffLabel = "Changes from the last edit"
 		if h.DiffEmpty {
 			h.DiffLabel = "No change recorded since this file was opened"
+		}
+	case diffModeHead:
+		h.DiffHref = h.Path
+		h.DiffTitle = "Comparing with the last commit — click to hide changes"
+		switch {
+		case h.DiffRefMissing:
+			h.DiffLabel = "This file has no committed version to compare with"
+		case h.DiffUnavailable:
+			h.DiffLabel = "The commit reference could not be read"
+		case h.DiffEmpty:
+			h.DiffLabel = "No changes since the last commit"
+		default:
+			h.DiffLabel = "Changes since the last commit"
 		}
 	default:
 		h.DiffHref = h.Path + "?diff=" + diffModeOpen
@@ -274,7 +343,7 @@ func (h *htmlStruct) diffControls() {
 
 // buildPage records the served content as a reference and, in diff mode, annotates the
 // rendered HTML with the changes against the requested reference.
-func (s *Server) buildPage(r *http.Request, content, htmlContent []byte) (htmlStruct, error) {
+func (s *Server) buildPage(r *http.Request, dir http.Dir, hasGit bool, content, htmlContent []byte) (htmlStruct, error) {
 	baseline, prev := s.record(r.URL.Path, content)
 
 	page := htmlStruct{
@@ -285,6 +354,7 @@ func (s *Server) buildPage(r *http.Request, content, htmlContent []byte) (htmlSt
 		Title:        s.pageTitle(r.URL.Path),
 		Path:         r.URL.Path,
 		HasChanges:   !bytes.Equal(baseline, content),
+		HasGit:       hasGit,
 	}
 
 	var reference []byte
@@ -293,10 +363,20 @@ func (s *Server) buildPage(r *http.Request, content, htmlContent []byte) (htmlSt
 		page.DiffMode, reference = diffModeOpen, baseline
 	case diffModeLast:
 		page.DiffMode, reference = diffModeLast, prev
+	case diffModeHead:
+		if hasGit {
+			page.DiffMode = diffModeHead
+			head, err := gitHeadContent(r.Context(), dir, r.URL.Path)
+			if err != nil {
+				page.DiffUnavailable = true
+				page.DiffRefMissing = errors.Is(err, errNoCommittedVersion)
+			}
+			reference = head
+		}
 	}
 
 	switch {
-	case page.DiffMode == "":
+	case page.DiffMode == "" || page.DiffUnavailable:
 	case bytes.Equal(reference, content):
 		page.DiffEmpty = true
 	default:

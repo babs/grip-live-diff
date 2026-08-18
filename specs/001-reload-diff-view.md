@@ -21,7 +21,8 @@ inside a modified line, not just whole-line granularity.
 Two references are available, switchable from the same control:
 
 - **since open** — the version served when the file was first opened (cumulative);
-- **last edit** — the content as it was just before the most recent change (what just moved).
+- **last edit** — the content as it was just before the most recent change (what just moved);
+- **last commit** — the file as committed in `git HEAD`, when it is served from a work tree.
 
 The button carries a marker when the file on disk differs from the initial version, so a reload makes
 it obvious that *something* changed even before opening the diff.
@@ -34,8 +35,10 @@ the highlights and starting a fresh comparison from here.
 - Two per-file reference snapshots held by the server, in memory for the lifetime of the process: the
   **baseline** (first render of that path) and the **previous** distinct content observed before the
   current one.
-- Diff mode reachable as `?diff=open` / `?diff=last` on the same URL, so the auto-reload (which
-  re-requests the same URL) keeps the reader in diff mode across file changes.
+- A third reference read from git on demand: `git show HEAD:<file>`, offered only when the served
+  directory is a git work tree (probed once at start-up).
+- Diff mode reachable as `?diff=open` / `?diff=last` / `?diff=head` on the same URL, so the auto-reload
+  (which re-requests the same URL) keeps the reader in diff mode across file changes.
 - Inline word-level highlighting rendered *on the HTML output*, preserving the normal rendering.
 - Reset action to re-baseline the current file.
 - Visual state on the toggle when disk ≠ baseline.
@@ -43,7 +46,7 @@ the highlights and starting a fresh comparison from here.
 
 ## Out of scope
 
-- Diff against git HEAD or any other revision (references are always contents observed by this server).
+- Diff against an arbitrary revision, branch or the index — `HEAD` only.
 - Full iteration history / ring buffer of the last N versions, timestamps, arbitrary
   version-to-version comparison. Exactly two references are kept.
 - Persisting baselines across server restarts.
@@ -82,6 +85,11 @@ the highlights and starting a fresh comparison from here.
 - [ ] A document containing a mermaid block, a fenced code block and a MathJax formula still renders
       correctly in diff mode (diagram drawn, syntax colours intact, formula typeset).
 - [ ] Deleted content appears in the diff even when a whole paragraph or list item was removed.
+- [ ] Given a file served from a git work tree and edited without committing, when `?diff=head` is
+      loaded, then the uncommitted changes are highlighted and "Mark as read" is not offered.
+- [ ] Given a file that has never been committed, when `?diff=head` is loaded, then the page states it
+      has no committed version instead of reporting the whole document as new.
+- [ ] Given a directory that is not a git work tree, then the toggle never offers the commit state.
 - [ ] `go test ./...` green; the diff engine is covered by table-driven tests including intra-line
       changes, block insertion, block deletion and the unchanged case.
 
@@ -126,6 +134,18 @@ the highlights and starting a fresh comparison from here.
   marker, cycle through both diff references and confirm "since open" shows both edits and "last edit"
   only the last, confirm word-level highlighting in both themes, confirm the mode survives the
   auto-reload, confirm "Mark as read" clears it.
+
+### Phase 4 — Git HEAD reference
+
+- Work: `?diff=head` reads the reference with `git -C <served dir> show HEAD:./<path>`. The work tree
+  is probed once when the handler is built and gates the whole state: outside a repository the toggle
+  cycles straight back to off. An untracked file, or a repository without a commit, renders the plain
+  document with a banner saying there is nothing to compare with. "Mark as read" is hidden — the git
+  reference is not the server's to move.
+- **Data model impact**: none.
+- **DoD**: `go test ./internal/ -run 'Head|Git'` green — an uncommitted edit is highlighted against
+  HEAD, an untracked file reports no reference and carries no diff markup, and a non-git directory
+  never exposes the state.
 
 ## Data model impact (summary)
 
