@@ -1,5 +1,4 @@
 .diff-toggle {
-  right: 60px;
   text-decoration: none;
 }
 
@@ -20,35 +19,28 @@
   background: #bf8700;
 }
 
-.diff-banner {
-  /* Stays at the normal-mode width whatever the width mode, so it never
-     runs under the fixed toggle buttons. */
-  max-width: 896px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 0 auto 16px;
-  padding: 8px 16px;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  font-size: 14px;
+/* Second toolbar row: a plain muted status line, not a button look-alike. */
+.diff-status-label {
+  font-size: 12px;
+  /* Long labels wrap instead of running off a narrow viewport. */
+  max-width: 60vw;
+  text-align: right;
   color: #656d76;
 }
 
-.diff-banner button {
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background: transparent;
-  padding: 3px 10px;
-  font-size: 12px;
-  color: inherit;
-  cursor: pointer;
+/* Green only when there is something to acknowledge; greyed out otherwise. */
+.mark-read {
+  opacity: 1;
 }
-
-.diff-banner button:hover {
-  border-color: #0969da;
-  color: #0969da;
+.mark-read .theme-toggle-icon {
+  color: #1a7f37;
+}
+.mark-read:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.mark-read:disabled .theme-toggle-icon {
+  color: #656d76;
 }
 
 /* Word-level markers. The class raises specificity above the markdown stylesheet, which
@@ -74,16 +66,14 @@
   .diff-toggle-active {
     border-color: #316dca;
   }
-  .diff-banner {
-    border-color: #484f58;
+  .diff-status-label {
     color: #8b949e;
   }
-  .diff-banner button {
-    border-color: #484f58;
+  .mark-read .theme-toggle-icon {
+    color: #3fb950;
   }
-  .diff-banner button:hover {
-    border-color: #316dca;
-    color: #58a6ff;
+  .mark-read:disabled .theme-toggle-icon {
+    color: #8b949e;
   }
   .markdown-body ins.gg-ins {
     background-color: rgba(63, 185, 80, 0.4);
@@ -96,16 +86,14 @@
 [data-theme="dark"] .diff-toggle-active {
   border-color: #316dca;
 }
-[data-theme="dark"] .diff-banner {
-  border-color: #484f58;
+[data-theme="dark"] .diff-status-label {
   color: #8b949e;
 }
-[data-theme="dark"] .diff-banner button {
-  border-color: #484f58;
+[data-theme="dark"] .mark-read .theme-toggle-icon {
+  color: #3fb950;
 }
-[data-theme="dark"] .diff-banner button:hover {
-  border-color: #316dca;
-  color: #58a6ff;
+[data-theme="dark"] .mark-read:disabled .theme-toggle-icon {
+  color: #8b949e;
 }
 /* data-theme sits on <body class="markdown-body"> itself, so it must be a compound
    selector, not a descendant one. */
@@ -119,12 +107,14 @@
 [data-theme="light"] .diff-toggle-active {
   border-color: #0969da;
 }
-[data-theme="light"] .diff-banner {
-  border-color: #d0d7de;
+[data-theme="light"] .diff-status-label {
   color: #656d76;
 }
-[data-theme="light"] .diff-banner button {
-  border-color: #d0d7de;
+[data-theme="light"] .mark-read .theme-toggle-icon {
+  color: #1a7f37;
+}
+[data-theme="light"] .mark-read:disabled .theme-toggle-icon {
+  color: #656d76;
 }
 .markdown-body[data-theme="light"] ins.gg-ins {
   background-color: #abf2bc;
@@ -133,9 +123,3 @@
   background-color: rgba(255, 129, 130, 0.4);
 }
 
-@media print {
-  .diff-toggle,
-  .diff-banner {
-    display: none;
-  }
-}

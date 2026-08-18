@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,9 @@ type diffFixture struct {
 }
 
 const docPath = "/doc.md"
+
+// Attribute order and spacing are the template's business, not the assertion's.
+var markReadDisabled = regexp.MustCompile(`<button[^>]*mark-read[^>]*\bdisabled`)
 
 func newDiffFixture(t *testing.T, content string) *diffFixture {
 	t.Helper()
@@ -74,10 +78,14 @@ func (f *diffFixture) get(target string) string {
 	return recorder.Body.String()
 }
 
-func (f *diffFixture) reset(path string) *httptest.ResponseRecorder {
+func (f *diffFixture) reset(path string, mode ...string) *httptest.ResponseRecorder {
 	f.t.Helper()
 
-	body := strings.NewReader(url.Values{"path": {path}}.Encode())
+	form := url.Values{"path": {path}}
+	if len(mode) > 0 {
+		form.Set("diff", mode[0])
+	}
+	body := strings.NewReader(form.Encode())
 	req := httptest.NewRequest(http.MethodPost, "/__baseline", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
@@ -101,8 +109,15 @@ func TestDiffModeAnnotatesChangesSinceOpen(t *testing.T) {
 	if !strings.Contains(body, `<del class="gg-del">bravo`) {
 		t.Fatalf("expected the replaced word to be marked as deleted, got %q", body)
 	}
-	if !strings.Contains(body, "Changes since this file was opened") {
+	if !strings.Contains(body, "Diff mode: since file open") {
 		t.Fatalf("expected the diff banner, got %q", body)
+	}
+	// The redirect back into the same mode depends on this hidden field.
+	if !strings.Contains(body, `name="diff" value="open"`) {
+		t.Fatalf("expected the mark-as-read form to carry the diff mode, got %q", body)
+	}
+	if markReadDisabled.MatchString(body) {
+		t.Fatalf("expected an active mark-as-read button when there are changes, got %q", body)
 	}
 }
 
@@ -172,11 +187,15 @@ func TestDiffModeWithoutChangesReportsNothing(t *testing.T) {
 	f.get(docPath)
 
 	body := f.get(docPath + "?diff=open")
-	if !strings.Contains(body, "No changes since this file was opened") {
-		t.Fatalf("expected the empty-diff banner, got %q", body)
+	if !strings.Contains(body, "Diff mode: since file open") {
+		t.Fatalf("expected the diff status line, got %q", body)
 	}
 	if strings.Contains(body, "gg-ins") || strings.Contains(body, "gg-del") {
 		t.Fatalf("expected no diff markup for an unchanged file, got %q", body)
+	}
+	// Nothing to acknowledge: the mark-as-read button must not call for a click.
+	if !markReadDisabled.MatchString(body) {
+		t.Fatalf("expected a disabled mark-as-read button on an empty diff, got %q", body)
 	}
 }
 
@@ -191,7 +210,7 @@ func TestDiffHeadComparesWithTheLastCommit(t *testing.T) {
 	if !strings.Contains(body, `<ins class="gg-ins">charlie</ins>`) {
 		t.Fatalf("expected the uncommitted change to be marked, got %q", body)
 	}
-	if !strings.Contains(body, "Changes since the last commit") {
+	if !strings.Contains(body, "Diff mode: since last commit") {
 		t.Fatalf("expected the commit banner, got %q", body)
 	}
 	// The git reference is not ours to move.
@@ -209,7 +228,7 @@ func TestDiffHeadOnAnUntrackedFileReportsNoReference(t *testing.T) {
 	f.get(docPath)
 
 	body := f.get(docPath + "?diff=" + diffModeHead)
-	if !strings.Contains(body, "This file has no committed version to compare with") {
+	if !strings.Contains(body, "Diff mode: no committed version to compare with") {
 		t.Fatalf("expected the missing-reference banner, got %q", body)
 	}
 	if strings.Contains(body, "gg-ins") || strings.Contains(body, "gg-del") {
@@ -225,7 +244,7 @@ func TestDiffHeadWithBrokenGitReportsUnreadableReference(t *testing.T) {
 
 	t.Setenv("PATH", "")
 	body := f.get(docPath + "?diff=" + diffModeHead)
-	if !strings.Contains(body, "The commit reference could not be read") {
+	if !strings.Contains(body, "Diff mode: commit reference could not be read") {
 		t.Fatalf("expected the unreadable-reference banner, got %q", body)
 	}
 	if strings.Contains(body, "no committed version") {
@@ -244,7 +263,7 @@ func TestDiffToggleSkipsTheCommitStateOutsideAGitRepository(t *testing.T) {
 	if body := f.get(docPath + "?diff=" + diffModeLast); !strings.Contains(body, `href="`+docPath+`"`) {
 		t.Fatalf("expected the toggle to cycle back to the plain document, got %q", body)
 	}
-	if body := f.get(docPath + "?diff=" + diffModeHead); strings.Contains(body, "diff-banner") {
+	if body := f.get(docPath + "?diff=" + diffModeHead); strings.Contains(body, "diff-status") {
 		t.Fatalf("expected the commit reference to be unavailable, got %q", body)
 	}
 }
@@ -266,8 +285,31 @@ func TestResetBaselineClearsTheChangedState(t *testing.T) {
 	}
 
 	body := f.get(docPath + "?diff=open")
-	if !strings.Contains(body, "No changes since this file was opened") {
+	// An empty diff disables the mark-as-read button: that is the "all read" signal.
+	if !markReadDisabled.MatchString(body) {
 		t.Fatalf("expected the reset to clear the changes, got %q", body)
+	}
+}
+
+func TestResetBaselineStaysInTheCurrentDiffMode(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
+	f.get(docPath)
+	f.write("# Title\n\nalpha charlie\n")
+	f.get(docPath)
+
+	for mode, want := range map[string]string{
+		diffModeOpen: docPath + "?diff=" + diffModeOpen,
+		diffModeLast: docPath + "?diff=" + diffModeLast,
+		// Unknown or empty modes fall back to the plain document.
+		diffModeHead: docPath,
+		"bogus":      docPath,
+		"":           docPath,
+	} {
+		if got := f.reset(docPath, mode).Header().Get("Location"); got != want {
+			t.Fatalf("mode %q: expected a redirect to %q, got %q", mode, want, got)
+		}
 	}
 }
 

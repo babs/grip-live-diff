@@ -307,10 +307,7 @@ func (h *htmlStruct) diffControls() {
 	case diffModeOpen:
 		h.DiffHref = h.Path + "?diff=" + diffModeLast
 		h.DiffTitle = "Comparing with the version opened — switch to the last edit only"
-		h.DiffLabel = "Changes since this file was opened"
-		if h.DiffEmpty {
-			h.DiffLabel = "No changes since this file was opened"
-		}
+		h.DiffLabel = "Diff mode: since file open"
 	case diffModeLast:
 		h.DiffHref = h.Path
 		h.DiffTitle = "Comparing with the version before the last edit — click to hide changes"
@@ -318,22 +315,17 @@ func (h *htmlStruct) diffControls() {
 			h.DiffHref = h.Path + "?diff=" + diffModeHead
 			h.DiffTitle = "Comparing with the version before the last edit — switch to the last commit"
 		}
-		h.DiffLabel = "Changes from the last edit"
-		if h.DiffEmpty {
-			h.DiffLabel = "No change recorded since this file was opened"
-		}
+		h.DiffLabel = "Diff mode: last edit"
 	case diffModeHead:
 		h.DiffHref = h.Path
 		h.DiffTitle = "Comparing with the last commit — click to hide changes"
 		switch {
 		case h.DiffRefMissing:
-			h.DiffLabel = "This file has no committed version to compare with"
+			h.DiffLabel = "Diff mode: no committed version to compare with"
 		case h.DiffUnavailable:
-			h.DiffLabel = "The commit reference could not be read"
-		case h.DiffEmpty:
-			h.DiffLabel = "No changes since the last commit"
+			h.DiffLabel = "Diff mode: commit reference could not be read"
 		default:
-			h.DiffLabel = "Changes since the last commit"
+			h.DiffLabel = "Diff mode: since last commit"
 		}
 	default:
 		h.DiffHref = h.Path + "?diff=" + diffModeOpen
@@ -426,7 +418,15 @@ func (s *Server) handleResetBaseline(w http.ResponseWriter, r *http.Request, dir
 	}
 
 	s.resetReferences(target, content)
-	http.Redirect(w, r, target, http.StatusSeeOther)
+
+	// Come back in the diff mode the reader was in, so marking as read does not
+	// silently drop them out of diff view.
+	redirect := target
+	switch mode := r.FormValue("diff"); mode {
+	case diffModeOpen, diffModeLast:
+		redirect += "?diff=" + mode
+	}
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
 }
 
 func serveTemplate(w http.ResponseWriter, html htmlStruct) error {

@@ -35,40 +35,51 @@
   </head>
 
   <body class="markdown-body">
-    <button id="theme-toggle" class="theme-toggle" title="Toggle theme">
-      <span class="theme-toggle-icon"></span>
-    </button>
-    <button id="width-toggle" class="theme-toggle width-toggle" title="Toggle wide layout">
-      <span class="theme-toggle-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M2 8h12M4.5 5.5 2 8l2.5 2.5M11.5 5.5 14 8l-2.5 2.5" />
-        </svg>
-      </span>
-    </button>
-    <a
-      class="theme-toggle diff-toggle{{if .DiffMode}} diff-toggle-active{{else if .HasChanges}} diff-toggle-changed{{end}}"
-      href="{{ .DiffHref }}"
-      title="{{ .DiffTitle }}"
-      aria-label="{{ .DiffTitle }}"
-    >
-      <span class="theme-toggle-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-          <path d="M8 1.5v7M4.5 5h7M3 12.5h10" />
-        </svg>
-      </span>
-    </a>
-    <div class="container">
+    <div class="toolbar">
+      <div class="toolbar-row">
+        <button id="width-toggle" class="theme-toggle" title="Toggle wide layout">
+          <span class="theme-toggle-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 8h12M4.5 5.5 2 8l2.5 2.5M11.5 5.5 14 8l-2.5 2.5" />
+            </svg>
+          </span>
+        </button>
+        <a
+          class="theme-toggle diff-toggle{{if .DiffMode}} diff-toggle-active{{else if .HasChanges}} diff-toggle-changed{{end}}"
+          href="{{ .DiffHref }}"
+          title="{{ .DiffTitle }}"
+          aria-label="{{ .DiffTitle }}"
+        >
+          <span class="theme-toggle-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+              <path d="M8 1.5v7M4.5 5h7M3 12.5h10" />
+            </svg>
+          </span>
+        </a>
+        <button id="theme-toggle" class="theme-toggle" title="Toggle theme">
+          <span class="theme-toggle-icon"></span>
+        </button>
+      </div>
       {{if .DiffMode}}
-      <div class="diff-banner">
-        <span>{{ .DiffLabel }}</span>
+      <div class="toolbar-row diff-status">
+        <span class="diff-status-label">{{ .DiffLabel }}</span>
         {{if .CanMarkAsRead}}
         <form method="post" action="/__baseline">
           <input type="hidden" name="path" value="{{ .Path }}" />
-          <button type="submit">Mark as read</button>
+          <input type="hidden" name="diff" value="{{ .DiffMode }}" />
+          <button type="submit" class="theme-toggle mark-read" {{if .DiffEmpty}}disabled{{end}} title="Mark as read" aria-label="Mark as read">
+            <span class="theme-toggle-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2.5 8.5l3.5 3.5 7-8" />
+              </svg>
+            </span>
+          </button>
         </form>
         {{end}}
       </div>
       {{end}}
+    </div>
+    <div class="container">
       <div {{if .BoundingBox }} class="container-inner" {{end}}>
         {{ .Content }}
       </div>

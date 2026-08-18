@@ -1,11 +1,26 @@
-.theme-toggle {
-  /* The diff toggle is an <a>: without this it is 34px (content-box + border)
-     next to the 32px border-box <button>s. */
-  box-sizing: border-box;
+.toolbar {
   position: fixed;
   top: 20px;
   right: 20px;
   z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-toggle {
+  /* The diff toggle is an <a>: without this it is 34px (content-box + border)
+     next to the 32px border-box <button>s. */
+  box-sizing: border-box;
+  /* Anchor for the diff toggle's changed-dot ::after. */
+  position: relative;
   background: transparent;
   border: 1px solid #d0d7de;
   border-radius: 6px;
@@ -23,11 +38,6 @@
 .theme-toggle:hover {
   opacity: 1;
 }
-
-.width-toggle {
-  right: 100px;
-}
-
 
 /* Overrides the 896px cap set by the markdown stylesheets' media query. On :root, not
    body: the width is applied before <body> exists to paint at the right width directly. */
@@ -70,7 +80,7 @@
 }
 
 @media print {
-  .theme-toggle {
+  .toolbar {
     display: none;
   }
 }
