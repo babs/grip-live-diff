@@ -48,6 +48,17 @@
     );
   }
 
+  // SVG icons so all toggle buttons share the same visual size (text glyphs don't).
+  var SUN_SVG =
+    '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">' +
+    '<circle cx="8" cy="8" r="3.25" />' +
+    '<path d="M8 1.5V3M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.06 1.06M11.54 11.54l1.06 1.06M12.6 3.4l-1.06 1.06M4.46 11.54 3.4 12.6" />' +
+    "</svg>";
+  var MOON_SVG =
+    '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">' +
+    '<path d="M6.5 2.2a6 6 0 1 0 7.3 7.3A5 5 0 0 1 6.5 2.2z" />' +
+    "</svg>";
+
   function updateIcon(mode) {
     var btn = document.getElementById("theme-toggle");
     if (!btn) return;
@@ -55,10 +66,10 @@
     if (!icon) return;
 
     if (mode === "dark") {
-      icon.textContent = "\u263E";
+      icon.innerHTML = MOON_SVG;
       btn.title = "Theme: Dark";
     } else {
-      icon.textContent = "\u2600";
+      icon.innerHTML = SUN_SVG;
       btn.title = "Theme: Light";
     }
   }

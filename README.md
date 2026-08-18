@@ -40,8 +40,9 @@ This project is a reimplementation of the original Python-based [grip](https://g
 - hashtag linking in page (see table of contents)
 - math expressions (code, inline, block)
 - gh issues and prs #46 and grafana/grafana#22
-- toggle state is preserved in [sessionStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/sessionStorage)
+- toggle state is preserved in [localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage)
 - highlight what changed on disk since the file was opened, down to the word
+- three page widths — normal, wide, full — switched from the `↔` button
 
 This is an inline $\sqrt{3x-1}+(1+x)^2$ function.
 
@@ -130,15 +131,24 @@ The browser page title is derived from the Markdown filename (`my-guide_v2.md` b
 
 The `±` button next to the theme switch shows what moved on disk since the file was opened. While the
 diff is off it carries a dot whenever the file differs from the version you opened; once a diff is on it
-is highlighted instead. Clicking it cycles through three states:
+is highlighted instead. Clicking it cycles through four states:
 
 1. off — the document as it is now;
 2. **since open** (`?diff=open`) — every change since you opened the file;
-3. **last edit** (`?diff=last`) — only the change brought by the most recent save.
+3. **last edit** (`?diff=last`) — only the change brought by the most recent save;
+4. **last commit** (`?diff=head`) — everything not committed yet, compared against `git HEAD`.
+   This state only appears when the file is served from a git work tree; a file that has never been
+   committed says so instead of showing the whole document as new.
 
 Changes are highlighted inside the rendered document, word by word: insertions in green, removals struck
 through in red. Diff mode survives the auto-reload, so the highlights refresh on every save. **Mark as
-read** takes the version currently on disk as the new comparison point.
+read** takes the version currently on disk as the new comparison point (it is not offered against
+`HEAD`, which is git's to move).
+
+### Page width
+
+The `↔` button cycles the page width through **normal** (GitHub's 896px), **wide** (1400px) and
+**full** (no limit). The choice is kept in localStorage, like the theme.
 
 To terminate the current server simply press `CTRL-C`.
 

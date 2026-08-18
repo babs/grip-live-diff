@@ -1,4 +1,7 @@
 .theme-toggle {
+  /* The diff toggle is an <a>: without this it is 34px (content-box + border)
+     next to the 32px border-box <button>s. */
+  box-sizing: border-box;
   position: fixed;
   top: 20px;
   right: 20px;
@@ -21,9 +24,25 @@
   opacity: 1;
 }
 
+.width-toggle {
+  right: 100px;
+}
+
+
+/* Overrides the 896px cap set by the markdown stylesheets' media query. On :root, not
+   body: the width is applied before <body> exists to paint at the right width directly. */
+:root[data-width="wide"] .container {
+  max-width: 1400px;
+}
+
+:root[data-width="full"] .container {
+  max-width: none;
+}
+
 .theme-toggle-icon {
-  font-size: 16px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #656d76;
 }
 
