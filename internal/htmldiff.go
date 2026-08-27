@@ -3,6 +3,7 @@ package internal
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
@@ -24,6 +25,9 @@ const (
 type token struct {
 	s    string
 	kind tokenKind
+	// exact keeps the whitespace significant when comparing: true inside <pre>, where a
+	// re-indentation is a real change, false in prose, where the line wrapping is not.
+	exact bool
 }
 
 // DiffHTML returns newHTML with the passages that differ from oldHTML wrapped in
@@ -44,16 +48,23 @@ func DiffHTML(oldHTML, newHTML []byte) []byte {
 
 	var out strings.Builder
 	out.Grow(len(newHTML))
+	// Walk both token slices alongside the diff: two tokens can be equal yet spelled
+	// differently, so the output must take its text from the new document itself.
+	oi, ni := 0, 0
 	for _, d := range diffs {
+		n := utf8.RuneCountInString(d.Text)
 		switch d.Type {
 		case diffmatchpatch.DiffEqual:
-			for _, t := range v.decode(d.Text) {
+			for _, t := range newTokens[ni : ni+n] {
 				out.WriteString(t.s)
 			}
+			oi, ni = oi+n, ni+n
 		case diffmatchpatch.DiffInsert:
-			writeInserted(&out, v.decode(d.Text))
+			writeInserted(&out, newTokens[ni:ni+n])
+			ni += n
 		case diffmatchpatch.DiffDelete:
-			writeDeleted(&out, v.decode(d.Text))
+			writeDeleted(&out, oldTokens[oi:oi+n])
+			oi += n
 		}
 	}
 	return []byte(out.String())
@@ -83,7 +94,7 @@ func writeDeleted(out *strings.Builder, tokens []token) {
 			// Dropped: the removed markup has no place in the new document tree.
 			continue
 		case t.kind == kindAtomic:
-			run = append(run, token{atomicInner(t.s), kindText})
+			run = append(run, token{s: atomicInner(t.s), kind: kindText})
 		case isBlank(t.s):
 			if len(run) > 0 {
 				run = append(run, t)
@@ -128,36 +139,43 @@ func joinTokens(run []token) string {
 
 func tokenize(html string) []token {
 	var out []token
+	pre := 0
 	for i := 0; i < len(html); {
 		if html[i] != '<' {
 			next := strings.IndexByte(html[i:], '<')
 			if next < 0 {
 				next = len(html) - i
 			}
-			out = appendWords(out, html[i:i+next])
+			out = appendWords(out, html[i:i+next], pre > 0)
 			i += next
 			continue
 		}
 
 		end := strings.IndexByte(html[i:], '>')
 		if end < 0 {
-			out = appendWords(out, html[i:])
+			out = appendWords(out, html[i:], pre > 0)
 			break
 		}
 		tag := html[i : i+end+1]
 		if stop := atomicEnd(html, i+end+1, tag); stop > 0 {
-			out = append(out, token{html[i:stop], kindAtomic})
+			out = append(out, token{s: html[i:stop], kind: kindAtomic})
 			i = stop
 			continue
 		}
-		out = append(out, token{tag, kindTag})
+		switch {
+		case isTag(tag, "pre") && !strings.HasSuffix(tag, "/>"):
+			pre++
+		case isTag(tag, "/pre") && pre > 0:
+			pre--
+		}
+		out = append(out, token{s: tag, kind: kindTag})
 		i += end + 1
 	}
 	return out
 }
 
 // appendWords splits text into tokens of one word plus the whitespace that follows it.
-func appendWords(out []token, text string) []token {
+func appendWords(out []token, text string, exact bool) []token {
 	for i := 0; i < len(text); {
 		j := i
 		for j < len(text) && !isSpaceByte(text[j]) {
@@ -166,10 +184,20 @@ func appendWords(out []token, text string) []token {
 		for j < len(text) && isSpaceByte(text[j]) {
 			j++
 		}
-		out = append(out, token{text[i:j], kindText})
+		out = append(out, token{s: text[i:j], kind: kindText, exact: exact})
 		i = j
 	}
 	return out
+}
+
+// isTag reports whether tag opens (or closes, with a leading slash in name) that element
+// and not merely one whose name starts with it: <preload> must not count as a <pre>.
+func isTag(tag, name string) bool {
+	rest := strings.TrimPrefix(tag, "<"+name)
+	if rest == "" || len(rest) == len(tag) {
+		return false
+	}
+	return rest == ">" || rest == "/>" || isSpaceByte(rest[0])
 }
 
 // atomicEnd returns the offset just past the element opened by openTag when its content
@@ -241,20 +269,29 @@ func isSpaceByte(b byte) bool {
 
 // vocab maps every distinct token to a rune so a character-level diff becomes a
 // token-level one.
+// vkey identifies a token without allocating: word carries the text as it must be
+// compared, exact tells verbatim tokens from those whose trailing whitespace was dropped,
+// so the two families can never collide.
+type vkey struct {
+	word  string
+	space bool
+	exact bool
+}
+
 type vocab struct {
-	ids  map[string]rune
-	toks map[rune]token
+	ids  map[vkey]rune
 	next rune
 }
 
 func newVocab() *vocab {
-	return &vocab{ids: make(map[string]rune), toks: make(map[rune]token), next: 1}
+	return &vocab{ids: make(map[vkey]rune), next: 1}
 }
 
 func (v *vocab) encode(tokens []token) []rune {
 	out := make([]rune, 0, len(tokens))
 	for _, t := range tokens {
-		r, ok := v.ids[t.s]
+		k := key(t)
+		r, ok := v.ids[k]
 		if !ok {
 			r = v.next
 			v.next++
@@ -263,18 +300,20 @@ func (v *vocab) encode(tokens []token) []rune {
 			if v.next == 0xD800 {
 				v.next = 0xE000
 			}
-			v.ids[t.s] = r
-			v.toks[r] = t
+			v.ids[k] = r
 		}
 		out = append(out, r)
 	}
 	return out
 }
 
-func (v *vocab) decode(s string) []token {
-	out := make([]token, 0, len(s))
-	for _, r := range s {
-		out = append(out, v.toks[r])
+// key identifies a token for the comparison. Prose words drop the shape of the trailing
+// whitespace, so re-wrapping a paragraph — a newline becoming a space — is not a change;
+// only its presence is kept, since that is what separates two words.
+func key(t token) vkey {
+	if t.kind != kindText || t.exact {
+		return vkey{word: t.s, exact: true}
 	}
-	return out
+	word := strings.TrimRight(t.s, spaces)
+	return vkey{word: word, space: word != t.s}
 }

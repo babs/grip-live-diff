@@ -150,7 +150,8 @@ is highlighted instead. Clicking it cycles through four states:
    committed says so instead of showing the whole document as new.
 
 Changes are highlighted inside the rendered document, word by word: insertions in green, removals struck
-through in red. Diff mode survives the auto-reload, so the highlights refresh on every save. **Mark as
+through in red. Re-wrapping a paragraph is not a change — only the words are compared, not where the
+lines break — while inside a code block the indentation still counts. Diff mode survives the auto-reload, so the highlights refresh on every save. **Mark as
 read** takes the version currently on disk as the new comparison point (it is not offered against
 `HEAD`, which is git's to move).
 

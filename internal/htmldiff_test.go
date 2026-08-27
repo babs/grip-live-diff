@@ -30,6 +30,55 @@ func TestDiffHTML(t *testing.T) {
 				`<del class="gg-del">jumps </del><ins class="gg-ins">leaps</ins> over the lazy dog</p>` + "\n",
 		},
 		{
+			name: "re-wrapping a paragraph is not a change",
+			old:  "<p>bonjour monsieur x, aze\nqsd aze</p>\n",
+			new:  "<p>bonjour monsieur x, aze qsd aze</p>\n",
+			want: "<p>bonjour monsieur x, aze qsd aze</p>\n",
+		},
+		{
+			name: "wrapping a paragraph is not a change either",
+			old:  "<p>the quick brown fox jumps over the lazy dog</p>\n",
+			new:  "<p>the quick brown fox\njumps over\nthe lazy dog</p>\n",
+			want: "<p>the quick brown fox\njumps over\nthe lazy dog</p>\n",
+		},
+		{
+			name: "a real edit is still caught inside a re-wrapped paragraph",
+			old:  "<p>the quick brown fox\njumps over the lazy dog</p>\n",
+			new:  "<p>the quick red fox jumps over the lazy dog</p>\n",
+			want: `<p>the quick <del class="gg-del">brown </del><ins class="gg-ins">red</ins> fox ` +
+				"jumps over the lazy dog</p>\n",
+		},
+		{
+			name:        "inside a code block the whitespace still counts",
+			old:         "<pre><code>if x:\n    return 1\n</code></pre>\n",
+			new:         "<pre><code>if x:\n        return 1\n</code></pre>\n",
+			wantContain: []string{`class="gg-ins"`},
+		},
+		{
+			name: "a tag whose name merely starts with pre does not turn whitespace exact",
+			old:  "<preload>\n<p>bonjour monsieur x, aze\nqsd aze</p>\n",
+			new:  "<preload>\n<p>bonjour monsieur x, aze qsd aze</p>\n",
+			want: "<preload>\n<p>bonjour monsieur x, aze qsd aze</p>\n",
+		},
+		{
+			name: "a self-closing pre opens nothing",
+			old:  "<pre/>\n<p>bonjour monsieur x, aze\nqsd aze</p>\n",
+			new:  "<pre/>\n<p>bonjour monsieur x, aze qsd aze</p>\n",
+			want: "<pre/>\n<p>bonjour monsieur x, aze qsd aze</p>\n",
+		},
+		{
+			name: "a spaced self-closing pre-prefixed tag opens nothing either",
+			old:  "<prefetch />\n<p>bonjour monsieur x, aze\nqsd aze</p>\n",
+			new:  "<prefetch />\n<p>bonjour monsieur x, aze qsd aze</p>\n",
+			want: "<prefetch />\n<p>bonjour monsieur x, aze qsd aze</p>\n",
+		},
+		{
+			name:        "an attributed pre still keeps its whitespace exact",
+			old:         `<pre class="x"><code>if x:` + "\n    return 1\n</code></pre>\n",
+			new:         `<pre class="x"><code>if x:` + "\n        return 1\n</code></pre>\n",
+			wantContain: []string{`class="gg-ins"`},
+		},
+		{
 			name:        "added paragraph is fully marked as inserted",
 			old:         "<p>first</p>\n",
 			new:         "<p>first</p>\n<p>second paragraph</p>\n",
