@@ -45,7 +45,7 @@ func newGitDiffFixture(t *testing.T, content string, commit bool) *diffFixture {
 	f.git("init", "-q")
 	if commit {
 		f.git("add", "doc.md")
-		f.git("-c", "user.email=go-grip@test", "-c", "user.name=go-grip",
+		f.git("-c", "user.email=grip-live-diff@test", "-c", "user.name=grip-live-diff",
 			"-c", "commit.gpgsign=false", "commit", "-q", "-m", "initial")
 	}
 	f.handler = NewServer("localhost", 6419, false, false, false, NewParser()).newHandler(http.Dir(f.dir))
@@ -533,5 +533,58 @@ func TestFilenameTitleResponses(t *testing.T) {
 				t.Fatalf("expected response to contain %q, got %q", tt.want, recorder.Body.String())
 			}
 		})
+	}
+}
+
+// The page title comes from the request path, and html/template is the only thing
+// escaping it since the switch away from text/template: pin that it still does.
+func TestPageTitleIsEscaped(t *testing.T) {
+	dir := t.TempDir()
+	// No slash: the payload must survive as one path segment, which is the only shape a
+	// filename can take anyway.
+	name := `<script>alert(1)&"x".md`
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("# hi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServer("localhost", 6419, false, false, false, NewParser()).newHandler(http.Dir(dir))
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, (&url.URL{Path: "/" + name}).String(), nil))
+
+	body := w.Body.String()
+	if !strings.Contains(body, `<title>&lt;script&gt;alert(1)&amp;&#34;x&#34;</title>`) {
+		t.Errorf("title not escaped, got:\n%s", body[:min(len(body), 400)])
+	}
+	if strings.Contains(body, "<title><script>") {
+		t.Error("raw markup reached the title")
+	}
+}
+
+func TestSnapshotsAreBounded(t *testing.T) {
+	dir := t.TempDir()
+	total := maxTrackedPaths + 10
+	for i := range total {
+		name := fmt.Sprintf("doc%03d.md", i)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("# hi\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := NewServer("localhost", 6419, false, false, false, NewParser())
+	h := s.newHandler(http.Dir(dir))
+	for i := range total {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/doc%03d.md", i), nil))
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.snapshots) != maxTrackedPaths || len(s.tracked) != maxTrackedPaths {
+		t.Errorf("kept %d snapshots / %d tracked, want %d", len(s.snapshots), len(s.tracked), maxTrackedPaths)
+	}
+	if _, ok := s.snapshots["/doc000.md"]; ok {
+		t.Error("oldest baseline was not evicted")
+	}
+	if _, ok := s.snapshots[fmt.Sprintf("/doc%03d.md", total-1)]; !ok {
+		t.Error("newest baseline was evicted")
 	}
 }

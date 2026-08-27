@@ -1,4 +1,6 @@
 vendor
 result
 bin
-go-grip
+dist
+grip-live-diff
+.claude/scratchpad/

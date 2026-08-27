@@ -3,12 +3,12 @@ package cmd
 import (
 	"os"
 
-	"github.com/chrishrb/go-grip/internal"
+	"github.com/babs/grip-live-diff/internal"
 	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "go-grip [file]",
+	Use:   "grip-live-diff [file]",
 	Short: "Render markdown document as html",
 	Args:  cobra.MatchAll(cobra.OnlyValidArgs),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -37,6 +37,7 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.Version = Version + "-" + CommitHash
 	rootCmd.Flags().BoolP("browser", "b", true, "Open new browser tab")
 	rootCmd.Flags().StringP("host", "H", "localhost", "Host to use")
 	rootCmd.Flags().IntP("port", "p", 6419, "Port to use")

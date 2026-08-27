@@ -1,35 +1,30 @@
-name: Release
+name: "Build and release"
 
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
-  releases-matrix:
-    name: Release Go Binary
+  build-and-release:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # build and publish in parallel:
-        #  linux/386, linux/amd64, linux/arm64
-        #  windows/386, windows/amd64, windows/arm64
-        #  darwin/amd64, darwin/arm64
-        goos: [linux, windows, darwin]
-        goarch: ["386", amd64, arm64]
-        exclude:
-          - goarch: "386"
-            goos: darwin
+
     steps:
       - uses: actions/checkout@v4
-      - uses: wangyoucao577/go-release-action@v1
+      - uses: actions/setup-go@v5
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          goos: ${{ matrix.goos }}
-          goarch: ${{ matrix.goarch }}
-          goversion: 1.26
-          binary_name: "go-grip"
-          extra_files: LICENSE README.md
+          go-version: "stable"
+      # A module path that does not resolve to this repo breaks `go install` and the
+      # self-update, and nothing else in the pipeline would notice.
+      - name: "Check the module path resolves to this repo"
+        env:
+          GOPROXY: direct
+        run: go install "$(go list -m)@${GITHUB_REF_NAME}"
+      - name: "Build"
+        run: ./release.sh
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

@@ -6,7 +6,7 @@
 
 ## Problem
 
-`go-grip` auto-reloads the browser whenever the watched `.md` file changes on disk. After a reload the
+`grip-live-diff` auto-reloads the browser whenever the watched `.md` file changes on disk. After a reload the
 page simply looks different — the reader has to hunt for what actually moved. When proofreading a long
 document, or when an editor/AI rewrites a paragraph in place, a full re-read is the only way to know
 what changed. There is no way to see the delta between what was on screen and what is now on disk.
@@ -50,7 +50,7 @@ the highlights and starting a fresh comparison from here.
 - Full iteration history / ring buffer of the last N versions, timestamps, arbitrary
   version-to-version comparison. Exactly two references are kept.
 - Persisting baselines across server restarts.
-- Per-browser-tab or per-user baselines — go-grip is a single-user local preview tool; the baseline is
+- Per-browser-tab or per-user baselines — grip-live-diff is a single-user local preview tool; the baseline is
   process-global per file path.
 - Side-by-side / split view.
 - Navigation between changes (next/previous change), change counter.
@@ -61,6 +61,11 @@ the highlights and starting a fresh comparison from here.
 - Attributing a formatting-only change to the text it wraps: dropping the emphasis from `**bold**`
   leaves the words identical, so the diff marks the surrounding words rather than the styling itself.
   Doing better means rebuilding the annotated document from a tree instead of a token stream.
+- Whitespace between words is compared by presence, not by shape: re-wrapping a paragraph — a hard
+  line break becoming a space — is not a change. Inside `<pre>` the whitespace stays significant, so a
+  re-indentation of code still shows. A whitespace-only change in a *syntax-highlighted* block remains
+  invisible: the indentation is a blank token between two `<span>`s, and blank-only runs carry no
+  annotation.
 
 ## Acceptance criteria
 
@@ -69,6 +74,8 @@ the highlights and starting a fresh comparison from here.
       highlighted.
 - [ ] Given a line where only a few words changed, when diff mode is on, then only those words are
       highlighted — the untouched words of the same line are not.
+- [ ] Given a paragraph whose only change is its line wrapping, when diff mode is on, then nothing is
+      highlighted.
 - [ ] Given a file unchanged since it was first opened, when diff mode is on, then the rendering is
       identical to normal mode and a "no changes" indication is shown.
 - [ ] Given a file changed on disk, when the page is loaded in normal mode, then the toggle button
@@ -130,7 +137,7 @@ the highlights and starting a fresh comparison from here.
   dark themes, a discreet banner in diff mode naming the reference in use ("since open" / "last edit")
   and stating "no changes" when identical.
 - **Data model impact**: none.
-- **DoD**: manual check on a live `go-grip` — edit a file twice while the page is open, observe the
+- **DoD**: manual check on a live `grip-live-diff` — edit a file twice while the page is open, observe the
   marker, cycle through both diff references and confirm "since open" shows both edits and "last edit"
   only the last, confirm word-level highlighting in both themes, confirm the mode survives the
   auto-reload, confirm "Mark as read" clears it.

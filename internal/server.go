@@ -22,10 +22,10 @@ import (
 	"github.com/aarol/reload"
 	chroma_html "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/chrishrb/go-grip/defaults"
+	"github.com/babs/grip-live-diff/defaults"
 )
 
-const defaultHTMLTitle = "go-grip - markdown preview"
+const defaultHTMLTitle = "grip-live-diff - markdown preview"
 
 // Diff references selectable through the ?diff= query parameter.
 const (
@@ -33,6 +33,10 @@ const (
 	diffModeLast = "last" // compare with the content as it was before the last change
 	diffModeHead = "head" // compare with the file as committed in git HEAD
 )
+
+// Past this many distinct files the oldest baseline is dropped: without a bound the
+// server retains every document it has ever served for the life of the process.
+const maxTrackedPaths = 128
 
 // snapshot holds the two reference versions of a file, plus the last content served.
 type snapshot struct {
@@ -51,6 +55,7 @@ type Server struct {
 
 	mu        sync.Mutex
 	snapshots map[string]*snapshot
+	tracked   []string // insertion order of snapshots, oldest first
 }
 
 // gitTimeout bounds the git calls: a slow repository must not hold a request open.
@@ -112,7 +117,7 @@ func (s *Server) record(path string, content []byte) (baseline, prev []byte) {
 	switch {
 	case !ok:
 		snap = &snapshot{baseline: content, prev: content, cur: content}
-		s.snapshots[path] = snap
+		s.putLocked(path, snap)
 	case !bytes.Equal(snap.cur, content):
 		snap.prev, snap.cur = snap.cur, content
 	}
@@ -123,7 +128,19 @@ func (s *Server) record(path string, content []byte) (baseline, prev []byte) {
 func (s *Server) resetReferences(path string, content []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.snapshots[path] = &snapshot{baseline: content, prev: content, cur: content}
+	s.putLocked(path, &snapshot{baseline: content, prev: content, cur: content})
+}
+
+// putLocked stores snap under path, evicting the oldest entry past maxTrackedPaths.
+func (s *Server) putLocked(path string, snap *snapshot) {
+	if _, known := s.snapshots[path]; !known {
+		s.tracked = append(s.tracked, path)
+		if len(s.tracked) > maxTrackedPaths {
+			delete(s.snapshots, s.tracked[0])
+			s.tracked = s.tracked[1:]
+		}
+	}
+	s.snapshots[path] = snap
 }
 
 func (s *Server) Serve(file string) error {

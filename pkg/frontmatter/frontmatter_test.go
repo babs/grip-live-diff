@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrishrb/go-grip/pkg/frontmatter"
+	"github.com/babs/grip-live-diff/pkg/frontmatter"
 )
 
 // ---------- Extract tests ----------
