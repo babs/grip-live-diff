@@ -14,9 +14,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      # Same pinned toolchain as the Build workflow: the published binary must not be
+      # compiled by whatever "stable" happens to mean on the day of the tag.
+      - uses: jdx/mise-action@v3
         with:
-          go-version: "stable"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
       # A module path that does not resolve to this repo breaks `go install` and the
       # self-update, and nothing else in the pipeline would notice.
       - name: "Check the module path resolves to this repo"
