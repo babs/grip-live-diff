@@ -559,3 +559,32 @@ func TestPageTitleIsEscaped(t *testing.T) {
 		t.Error("raw markup reached the title")
 	}
 }
+
+func TestSnapshotsAreBounded(t *testing.T) {
+	dir := t.TempDir()
+	total := maxTrackedPaths + 10
+	for i := range total {
+		name := fmt.Sprintf("doc%03d.md", i)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("# hi\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := NewServer("localhost", 6419, false, false, false, NewParser())
+	h := s.newHandler(http.Dir(dir))
+	for i := range total {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/doc%03d.md", i), nil))
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.snapshots) != maxTrackedPaths || len(s.tracked) != maxTrackedPaths {
+		t.Errorf("kept %d snapshots / %d tracked, want %d", len(s.snapshots), len(s.tracked), maxTrackedPaths)
+	}
+	if _, ok := s.snapshots["/doc000.md"]; ok {
+		t.Error("oldest baseline was not evicted")
+	}
+	if _, ok := s.snapshots[fmt.Sprintf("/doc%03d.md", total-1)]; !ok {
+		t.Error("newest baseline was evicted")
+	}
+}
