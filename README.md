@@ -88,10 +88,6 @@ To install grip-live-diff, simply:
 go install github.com/babs/grip-live-diff@latest
 ```
 
-> [!TIP]
-> You can also use nix flakes to install this plugin.
-> More useful information [here](https://nixos.wiki/wiki/Flakes).
-
 Release binaries are available on the [releases page](https://github.com/babs/grip-live-diff/releases). An installed release binary can update itself in place:
 
 ```bash
