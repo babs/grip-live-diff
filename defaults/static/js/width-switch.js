@@ -1,5 +1,5 @@
 (function () {
-  var STORAGE_KEY = "go-grip-width";
+  var STORAGE_KEY = "grip-live-diff-width";
   var MODES = ["normal", "wide", "full"];
 
   function getPreference() {

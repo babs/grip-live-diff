@@ -1,4 +1,4 @@
-module github.com/chrishrb/go-grip
+module github.com/babs/grip-live-diff
 
 go 1.26
 

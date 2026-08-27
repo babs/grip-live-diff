@@ -49,14 +49,14 @@ func TestGitHubIssueExtension(t *testing.T) {
 		{
 			name:  "mixed internal and external references",
 			input: "See #100 and grafana/grafana#10",
-			repo:  "chrishrb/go-grip",
+			repo:  "babs/grip-live-diff",
 			expectContains: []string{
-				`<a href="https://github.com/chrishrb/go-grip/issues/100" class="issue-link">#100</a>`,
+				`<a href="https://github.com/babs/grip-live-diff/issues/100" class="issue-link">#100</a>`,
 				`<a href="https://github.com/grafana/grafana/issues/10" class="issue-link">grafana/grafana#10</a>`,
 			},
 			expectNotContains: []string{
 				"grafana/grafana<a",
-				`href="https://github.com/chrishrb/go-grip/issues/10"`, // Should use correct repo
+				`href="https://github.com/babs/grip-live-diff/issues/10"`, // Should use correct repo
 			},
 		},
 		{
@@ -129,18 +129,18 @@ func TestComplexScenarios(t *testing.T) {
 Same goes for external repositories. e.g. grafana/grafana#10 should lead to the grafana/grafana repository.
 
 kubernetes/kubernetes#200`,
-			repo: "chrishrb/go-grip",
+			repo: "babs/grip-live-diff",
 			expectContains: []string{
-				`<a href="https://github.com/chrishrb/go-grip/issues/100" class="issue-link">#100</a>`,
-				`<a href="https://github.com/chrishrb/go-grip/issues/120" class="issue-link">#120</a>`,
+				`<a href="https://github.com/babs/grip-live-diff/issues/100" class="issue-link">#100</a>`,
+				`<a href="https://github.com/babs/grip-live-diff/issues/120" class="issue-link">#120</a>`,
 				`<a href="https://github.com/grafana/grafana/issues/10" class="issue-link">grafana/grafana#10</a>`,
 				`<a href="https://github.com/kubernetes/kubernetes/issues/200" class="issue-link">kubernetes/kubernetes#200</a>`,
 			},
 			expectNotContains: []string{
 				"grafana/grafana<a",
 				"kubernetes/kubernetes<a",
-				`href="https://github.com/chrishrb/go-grip/issues/10"`,
-				`href="https://github.com/chrishrb/go-grip/issues/200"`,
+				`href="https://github.com/babs/grip-live-diff/issues/10"`,
+				`href="https://github.com/babs/grip-live-diff/issues/200"`,
 			},
 		},
 		{

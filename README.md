@@ -5,7 +5,7 @@
     <img src=".github/docs/logo-1.png" alt="Logo" height="120">
   </a>
 
-  <h3 align="center">go-grip</h3>
+  <h3 align="center">grip-live-diff</h3>
 
   <p align="center">
     Render your markdown files local<br>- with the look of GitHub
@@ -21,12 +21,15 @@
 - [Examples](#pencil-examples)
 - [Known TODOs / Bugs](#bug-known-todos--bugs)
 - [Similar tools](#pushpin-similar-tools)
+- [Credits](#heart-credits)
 
 ## :question: About
 
-**go-grip** is a lightweight, Go-based tool designed to render Markdown files locally, replicating GitHub's style. It offers features like syntax highlighting, dark mode, and support for mermaid diagrams, providing a seamless and visually consistent way to preview Markdown files in your browser.
+**grip-live-diff** is a lightweight, Go-based tool designed to render Markdown files locally, replicating GitHub's style. It offers features like syntax highlighting, dark mode, and support for mermaid diagrams, providing a seamless and visually consistent way to preview Markdown files in your browser.
 
-This project is a reimplementation of the original Python-based [grip](https://github.com/joeyespo/grip), which uses GitHub's web API for rendering. By eliminating the reliance on external APIs, go-grip delivers similar functionality while being fully self-contained, faster, and more secure - perfect for offline use or privacy-conscious users.
+This project is a fork of [go-grip](https://github.com/chrishrb/go-grip) by Christoph Herb — itself a reimplementation of the original Python-based [grip](https://github.com/joeyespo/grip), which uses GitHub's web API for rendering. By eliminating the reliance on external APIs, grip-live-diff delivers similar functionality while being fully self-contained, faster, and more secure - perfect for offline use or privacy-conscious users.
+
+The fork adds live word-by-word highlighting of what changed on disk since the file was opened, page-width toggling, and built-in self-update.
 
 ## :zap: Features
 
@@ -63,10 +66,10 @@ graph TD;
 ```go
 package main
 
-import "github.com/chrishrb/go-grip/cmd"
+import "github.com/babs/grip-live-diff/cmd"
 
 func main() {
-	fmt.Sprintln("Welcome to Grip! Use `go-grip --help` for more information.")
+	fmt.Sprintln("Welcome to Grip! Use `grip-live-diff --help` for more information.")
 }
 ```
 
@@ -79,10 +82,10 @@ func main() {
 
 ## :rocket: Getting started
 
-To install go-grip, simply:
+To install grip-live-diff, simply:
 
 ```bash
-go install github.com/chrishrb/go-grip@latest
+go install github.com/babs/grip-live-diff@latest
 ```
 
 > [!TIP]
@@ -94,9 +97,9 @@ go install github.com/chrishrb/go-grip@latest
 To render the `README.md` file simply execute:
 
 ```bash
-go-grip README.md
+grip-live-diff README.md
 # or
-go-grip
+grip-live-diff
 ```
 
 The browser will automatically open on http://localhost:6419. You can disable this behaviour with the `-b=false` option.
@@ -104,25 +107,25 @@ The browser will automatically open on http://localhost:6419. You can disable th
 You can also specify a port:
 
 ```bash
-go-grip -p 80 README.md
+grip-live-diff -p 80 README.md
 ```
 
 or just open a file-tree with all available files in the current directory:
 
 ```bash
-go-grip -r=false
+grip-live-diff -r=false
 ```
 
 It's also possible to activate the darkmode:
 
 ```bash
-go-grip -d .
+grip-live-diff -d .
 ```
 
 To disable automatic browser reload on file changes (useful for stable editing):
 
 ```bash
-go-grip --no-reload README.md
+grip-live-diff --no-reload README.md
 ```
 
 The browser page title is derived from the Markdown filename (`my-guide_v2.md` becomes `My Guide V2`).
@@ -163,3 +166,7 @@ To terminate the current server simply press `CTRL-C`.
 ## :pushpin: Similar tools
 
 This tool is a Go-based reimplementation of the original [grip](https://github.com/joeyespo/grip), offering the same functionality without relying on GitHub's web API.
+
+## :heart: Credits
+
+Original work by [Christoph Herb](https://github.com/chrishrb/go-grip).

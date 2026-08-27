@@ -22,10 +22,10 @@ import (
 	"github.com/aarol/reload"
 	chroma_html "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/chrishrb/go-grip/defaults"
+	"github.com/babs/grip-live-diff/defaults"
 )
 
-const defaultHTMLTitle = "go-grip - markdown preview"
+const defaultHTMLTitle = "grip-live-diff - markdown preview"
 
 // Diff references selectable through the ?diff= query parameter.
 const (

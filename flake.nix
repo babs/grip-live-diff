@@ -1,5 +1,5 @@
 {
-  description = "go-grip - render your markdown files local";
+  description = "grip-live-diff - render your markdown files local";
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   };
@@ -22,7 +22,7 @@
   in {
     packages = forAllSystems (pkgs: {
       default = pkgs.buildGoModule {
-        name = "go-grip";
+        name = "grip-live-diff";
         src = self;
         # Only for updating vendorHas
         # vendorHash = "sha256-RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR=";
