@@ -5,17 +5,22 @@ go 1.26
 require (
 	github.com/aarol/reload v1.2.0
 	github.com/alecthomas/chroma/v2 v2.14.0
+	github.com/minio/selfupdate v0.6.0
 	github.com/sergi/go-diff v1.4.0
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.11.1
+	github.com/ulikunitz/xz v0.5.16
+	golang.org/x/mod v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
+	aead.dev/minisign v0.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/forPelevin/gomoji v1.3.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	golang.org/x/crypto v0.0.0-20211209193657-4570a0811e8b // indirect
 )
 
 require (

@@ -37,6 +37,7 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.Version = Version + "-" + CommitHash
 	rootCmd.Flags().BoolP("browser", "b", true, "Open new browser tab")
 	rootCmd.Flags().StringP("host", "H", "localhost", "Host to use")
 	rootCmd.Flags().IntP("port", "p", 6419, "Port to use")

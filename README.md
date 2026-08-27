@@ -92,6 +92,12 @@ go install github.com/babs/grip-live-diff@latest
 > You can also use nix flakes to install this plugin.
 > More useful information [here](https://nixos.wiki/wiki/Flakes).
 
+Release binaries are available on the [releases page](https://github.com/babs/grip-live-diff/releases). An installed release binary can update itself in place:
+
+```bash
+grip-live-diff update
+```
+
 ## :hammer: Usage
 
 To render the `README.md` file simply execute:
