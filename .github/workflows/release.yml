@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Same pinned toolchain as the Build workflow: the published binary must not be
       # compiled by whatever "stable" happens to mean on the day of the tag.
-      - uses: jdx/mise-action@v3
+      - uses: jdx/mise-action@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
       # A module path that does not resolve to this repo breaks `go install` and the
@@ -27,6 +27,6 @@ jobs:
         run: go install "$(go list -m)@${GITHUB_REF_NAME}"
       - name: "Build"
         run: ./release.sh
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
