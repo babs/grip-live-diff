@@ -372,3 +372,13 @@
     display: none !important;
   }
 }
+
+@media print {
+  .minimap,
+  .minimap-hit {
+    display: none !important;
+  }
+  :root[data-minimap-shown] body {
+    margin-right: 0 !important;
+  }
+}

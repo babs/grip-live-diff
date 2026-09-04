@@ -123,6 +123,8 @@
     var nodes = document.querySelectorAll('.mermaid');
     for (var i = 0; i < nodes.length; i++) {
       var node = nodes[i];
+      // The minimap carries a clone of every diagram; rendering it again is wasted work.
+      if (node.closest('.minimap')) continue;
       var code = getCode(node).trim();
       // Preserve source code for re-renders
       if (!node.dataset.code) node.dataset.code = code;
