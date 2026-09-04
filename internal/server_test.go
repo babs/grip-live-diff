@@ -613,12 +613,14 @@ func TestMinimapShipsOnlyInDiffMode(t *testing.T) {
 	t.Parallel()
 
 	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
-	script := `<script src="/static/js/minimap.js"></script>`
+	plain, diff := f.get(docPath), f.get(docPath+"?diff=open")
 
-	if body := f.get(docPath); strings.Contains(body, script) {
-		t.Fatalf("expected no minimap script without diff mode, got %q", body)
-	}
-	if body := f.get(docPath + "?diff=open"); !strings.Contains(body, script) {
-		t.Fatalf("expected the minimap script in diff mode, got %q", body)
+	for _, want := range []string{`<script src="/static/js/minimap.js"></script>`, `id="minimap-toggle"`} {
+		if strings.Contains(plain, want) {
+			t.Fatalf("expected no %q without diff mode, got %q", want, plain)
+		}
+		if !strings.Contains(diff, want) {
+			t.Fatalf("expected %q in diff mode, got %q", want, diff)
+		}
 	}
 }

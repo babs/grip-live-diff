@@ -1,6 +1,6 @@
 # 002 — Minimap in diff mode
 
-**Status**: in progress
+**Status**: shipped
 **Requested by**: babs
 **Date**: 2026-09-04
 

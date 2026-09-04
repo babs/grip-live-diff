@@ -1,8 +1,23 @@
 (function () {
+  var STORAGE_KEY = "grip-live-diff-minimap";
   var DEBOUNCE_MS = 150;
   var MIN_MARK_PX = 3;
 
-  var panel, map, marks, viewport, hit, article, scale, articleTop, timer;
+  var panel, map, marks, viewport, hit, article, scale, articleTop, timer, observers;
+
+  function wanted() {
+    try {
+      return localStorage.getItem(STORAGE_KEY) !== "off";
+    } catch (e) {
+      return true;
+    }
+  }
+
+  function remember(on) {
+    try {
+      localStorage.setItem(STORAGE_KEY, on ? "on" : "off");
+    } catch (e) {}
+  }
 
   function docHeight() {
     return document.documentElement.scrollHeight;
@@ -129,12 +144,43 @@
     window.addEventListener("resize", scheduleBuild);
     // Width-mode switches change the size without touching the DOM; mermaid re-rendering
     // on a theme switch touches the DOM without changing the size. Both are needed.
-    new ResizeObserver(scheduleBuild).observe(article);
-    new MutationObserver(scheduleBuild).observe(article, { childList: true, subtree: true });
+    observers = [new ResizeObserver(scheduleBuild), new MutationObserver(scheduleBuild)];
+    observers[0].observe(article);
+    observers[1].observe(article, { childList: true, subtree: true });
     build();
+  }
+
+  function unmount() {
+    if (!panel) return;
+    clearTimeout(timer);
+    observers.forEach(function (o) {
+      o.disconnect();
+    });
+    window.removeEventListener("scroll", sync);
+    window.removeEventListener("resize", scheduleBuild);
+    panel.remove();
+    hit.remove();
+    document.documentElement.removeAttribute("data-minimap-shown");
+    panel = hit = null;
+  }
+
+  function reflect(button) {
+    button.setAttribute("aria-pressed", String(wanted()));
   }
 
   // Not gated on MathJax.startup.promise: MathJax 4 leaves it pending after the initial
   // typeset. A late typeset or font load moves the article height and rebuilds the map.
-  window.addEventListener("load", mount);
+  window.addEventListener("load", function () {
+    if (wanted()) mount();
+    var button = document.getElementById("minimap-toggle");
+    if (!button) return;
+    reflect(button);
+    button.addEventListener("click", function () {
+      var on = !wanted();
+      remember(on);
+      reflect(button);
+      if (on) mount();
+      else unmount();
+    });
+  });
 })();
