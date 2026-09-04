@@ -87,8 +87,8 @@ the highlights and starting a fresh comparison from here.
 - [ ] Given diff mode is on, when the file changes again on disk and the browser auto-reloads, then the
       page comes back in the same diff mode, `?diff=open` still comparing against the original
       baseline and `?diff=last` now against the content from just before that change.
-- [ ] Given diff mode is on, when "Mark as read" is clicked, then the page returns to normal mode and a
-      subsequent diff shows no changes.
+- [ ] Given diff mode is on, when "Mark as read" is clicked, then the page stays in the current diff
+      mode at the same scroll position and shows no changes.
 - [ ] A document containing a mermaid block, a fenced code block and a MathJax formula still renders
       correctly in diff mode (diagram drawn, syntax colours intact, formula typeset).
 - [ ] Deleted content appears in the diff even when a whole paragraph or list item was removed.
@@ -140,7 +140,7 @@ the highlights and starting a fresh comparison from here.
 - **DoD**: manual check on a live `grip-live-diff` — edit a file twice while the page is open, observe the
   marker, cycle through both diff references and confirm "since open" shows both edits and "last edit"
   only the last, confirm word-level highlighting in both themes, confirm the mode survives the
-  auto-reload, confirm "Mark as read" clears it.
+  auto-reload, confirm "Mark as read" clears the highlights and keeps the mode and scroll position.
 
 ### Phase 4 — Git HEAD reference
 

@@ -24,7 +24,10 @@ type diffFixture struct {
 const docPath = "/doc.md"
 
 // Attribute order and spacing are the template's business, not the assertion's.
-var markReadDisabled = regexp.MustCompile(`<button[^>]*mark-read[^>]*\bdisabled`)
+var (
+	markReadDisabled = regexp.MustCompile(`<button[^>]*mark-read[^>]*\bdisabled`)
+	markReadForm     = regexp.MustCompile(`<form[^>]*class="mark-read-form"`)
+)
 
 func newDiffFixture(t *testing.T, content string) *diffFixture {
 	t.Helper()
@@ -586,5 +589,21 @@ func TestSnapshotsAreBounded(t *testing.T) {
 	}
 	if _, ok := s.snapshots[fmt.Sprintf("/doc%03d.md", total-1)]; !ok {
 		t.Error("newest baseline was evicted")
+	}
+}
+
+// scroll-keep.js finds the form by class and silently no-ops without it, so the
+// template contract has to be pinned here.
+func TestMarkAsReadFormIsWiredToScrollKeep(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
+	body := f.get(docPath + "?diff=open")
+
+	if !markReadForm.MatchString(body) {
+		t.Fatalf("expected the mark-read form to carry the scroll-keep class, got %q", body)
+	}
+	if want := `<script src="/static/js/scroll-keep.js"></script>`; !strings.Contains(body, want) {
+		t.Fatalf("expected %q in the diff page, got %q", want, body)
 	}
 }
