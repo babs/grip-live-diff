@@ -27,6 +27,7 @@
     <link rel="stylesheet" href="/static/css/github-diff.css" />
     <script src="/static/js/theme-switch.js"></script>
     <script src="/static/js/width-switch.js"></script>
+    <script src="/static/js/scroll-keep.js"></script>
     <script src="/static/js/clipboard-copy.js"></script>
     <script src="/static/js/mathjax-options.js"></script>
     <script src="/static/js/tex-mml-chtml.js"></script>
@@ -64,7 +65,7 @@
       <div class="toolbar-row diff-status">
         <span class="diff-status-label">{{ .DiffLabel }}</span>
         {{if .CanMarkAsRead}}
-        <form method="post" action="/__baseline">
+        <form method="post" action="/__baseline" class="mark-read-form">
           <input type="hidden" name="path" value="{{ .Path }}" />
           <input type="hidden" name="diff" value="{{ .DiffMode }}" />
           <button type="submit" class="theme-toggle mark-read" {{if .DiffEmpty}}disabled{{end}} title="Mark as read" aria-label="Mark as read">
