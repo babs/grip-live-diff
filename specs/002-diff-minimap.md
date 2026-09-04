@@ -22,8 +22,8 @@ shows the minimap and the choice is remembered, like the theme and the page widt
 
 - Minimap rendered only when `?diff=…` is active, whatever the reference (open, last, head).
 - Scaled rendering of the actual document (same styles, same theme), not a synthetic sketch.
-- Full-width green / red marks at the height of every `ins` / `del`, so a one-word change is visible
-  even when the scaled text is not.
+- Green / red marks at the height of every `ins` / `del`, so a one-word change is visible even when
+  the scaled text is not: red on the left half, green on the right half, so a replacement shows both.
 - Viewport indicator, click-to-jump, drag-to-scroll.
 - When the scaled document is taller than the window, the minimap slides with the scroll so the
   current position is always visible (VS Code behaviour).
@@ -45,7 +45,8 @@ shows the minimap and the choice is remembered, like the theme and the page widt
 - [ ] Given a document loaded with `?diff=open`, the page carries the minimap script and the toggle
       button; loaded without `?diff`, it carries neither.
 - [ ] Given a long document with one insertion and one deletion in diff mode, the minimap shows a green
-      mark and a red mark at heights proportional to their position in the document.
+      mark and a red mark at heights proportional to their position in the document; a replaced word
+      shows both, side by side.
 - [ ] Given the reader scrolls the page, the viewport rectangle follows and stays inside the minimap.
 - [ ] Given a click at the bottom of the minimap, the page scrolls so that the end of the document is
       on screen.
@@ -68,7 +69,7 @@ shows the minimap and the choice is remembered, like the theme and the page widt
 - Work: `defaults/static/js/minimap.js` clones the rendered article into a fixed `inert` panel on the
   right, scaled by CSS transform to a fixed width, with ids stripped from the clone. Viewport
   rectangle synced on scroll, click-to-jump, drag-to-scroll, proportional sliding when the map is
-  taller than the window. Full-width marks computed from the position of every `ins.gg-ins` /
+  taller than the window. Half-width marks computed from the position of every `ins.gg-ins` /
   `del.gg-del` in the original. Rebuild on a debounced `ResizeObserver` of the article. Styles in
   `github-diff.css` (light / dark), hidden in `github-print.css` and under 940px. Script included
   from `layout.html` inside `{{if .DiffMode}}`.

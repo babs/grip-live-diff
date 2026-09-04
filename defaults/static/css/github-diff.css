@@ -163,16 +163,19 @@
   left: 0;
   right: 0;
 }
+/* Half width each side: a replacement puts a del and an ins on the same line, and two
+   full-width bars would leave only the last one painted. */
 .minimap-mark {
   position: absolute;
-  left: 0;
-  right: 0;
+  width: 50%;
   opacity: 0.6;
 }
 .minimap-ins {
+  right: 0;
   background: #1a7f37;
 }
 .minimap-del {
+  left: 0;
   background: #cf222e;
 }
 /* Scaled text is a blur; the change itself must still read as a solid block. */
