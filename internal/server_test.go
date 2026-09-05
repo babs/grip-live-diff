@@ -607,3 +607,20 @@ func TestMarkAsReadFormIsWiredToScrollKeep(t *testing.T) {
 		t.Fatalf("expected %q in the diff page, got %q", want, body)
 	}
 }
+
+// The minimap script doubles the article's DOM: it must only ship when a diff is on.
+func TestMinimapShipsOnlyInDiffMode(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
+	plain, diff := f.get(docPath), f.get(docPath+"?diff=open")
+
+	for _, want := range []string{`<script src="/static/js/minimap.js"></script>`, `id="minimap-toggle"`} {
+		if strings.Contains(plain, want) {
+			t.Fatalf("expected no %q without diff mode, got %q", want, plain)
+		}
+		if !strings.Contains(diff, want) {
+			t.Fatalf("expected %q in diff mode, got %q", want, diff)
+		}
+	}
+}

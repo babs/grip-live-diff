@@ -151,6 +151,11 @@ lines break — while inside a code block the indentation still counts. Diff mod
 read** takes the version currently on disk as the new comparison point (it is not offered against
 `HEAD`, which is git's to move).
 
+While a diff is on, a minimap of the whole document runs along the right edge, VS Code style: a scaled
+rendering with every insertion and removal marked in green and red, and a box for the part on screen.
+Click it to jump, drag the box to scroll. The button next to "Mark as read" hides it; the choice is kept
+in localStorage, like the theme.
+
 ### Page width
 
 The `↔` button cycles the page width through **normal** (GitHub's 896px), **wide** (1400px) and

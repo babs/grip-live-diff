@@ -123,3 +123,131 @@
   background-color: rgba(255, 129, 130, 0.4);
 }
 
+/* Minimap: a scaled clone of the article pinned to the right edge, diff mode only. */
+:root {
+  --minimap-width: 100px;
+}
+.minimap,
+.minimap-hit {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: var(--minimap-width);
+  height: 100vh;
+  z-index: 900;
+}
+.minimap {
+  overflow: hidden;
+  border-left: 1px solid #d0d7de;
+  background: inherit;
+}
+.minimap-hit {
+  cursor: pointer;
+  /* Above the panel, below the toolbar. */
+  z-index: 901;
+  touch-action: none;
+}
+.minimap-map {
+  position: relative;
+  will-change: transform;
+}
+.minimap-clone {
+  transform-origin: 0 0;
+  /* The clone keeps the article's class-less inner div; the container's centering
+     and max-width must not apply to it. */
+  margin: 0;
+}
+.minimap-marks {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+/* Half width each side: a replacement puts a del and an ins on the same line, and two
+   full-width bars would leave only the last one painted. */
+.minimap-mark {
+  position: absolute;
+  width: 50%;
+  opacity: 0.6;
+}
+.minimap-ins {
+  right: 0;
+  background: #1a7f37;
+}
+.minimap-del {
+  left: 0;
+  background: #cf222e;
+}
+/* Scaled text is a blur; the change itself must still read as a solid block. */
+.minimap ins.gg-ins {
+  background-color: #1a7f37;
+}
+.minimap del.gg-del {
+  background-color: #cf222e;
+}
+.minimap-viewport {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(110, 118, 129, 0.25);
+}
+.minimap-toggle[aria-pressed="true"] {
+  opacity: 1;
+}
+/* Make room: the toolbar shares the corner, the article the column. */
+:root[data-minimap-shown] .toolbar {
+  right: calc(20px + var(--minimap-width));
+}
+/* On body, not .container: a margin there would defeat its auto centering. */
+:root[data-minimap-shown] body {
+  margin-right: var(--minimap-width);
+}
+/* Below the width at which the markdown stylesheet stops centering the article. */
+@media (max-width: 939px) {
+  .minimap,
+  .minimap-hit {
+    display: none;
+  }
+  :root[data-minimap-shown] .toolbar {
+    right: 20px;
+  }
+  :root[data-minimap-shown] body {
+    margin-right: 0;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .minimap {
+    border-left-color: #484f58;
+  }
+  .minimap-ins,
+  .minimap ins.gg-ins {
+    background-color: #3fb950;
+  }
+  .minimap-del,
+  .minimap del.gg-del {
+    background-color: #f85149;
+  }
+}
+[data-theme="dark"] .minimap {
+  border-left-color: #484f58;
+}
+[data-theme="dark"] .minimap-ins,
+[data-theme="dark"] .minimap ins.gg-ins {
+  background-color: #3fb950;
+}
+[data-theme="dark"] .minimap-del,
+[data-theme="dark"] .minimap del.gg-del {
+  background-color: #f85149;
+}
+[data-theme="light"] .minimap {
+  border-left-color: #d0d7de;
+}
+[data-theme="light"] .minimap-ins,
+[data-theme="light"] .minimap ins.gg-ins {
+  background-color: #1a7f37;
+}
+[data-theme="light"] .minimap-del,
+[data-theme="light"] .minimap del.gg-del {
+  background-color: #cf222e;
+}
