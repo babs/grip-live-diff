@@ -8,173 +8,145 @@
   <h3 align="center">grip-live-diff</h3>
 
   <p align="center">
-    Render your markdown files local<br>- with the look of GitHub
+    Preview Markdown with GitHub's look, and see what changed since you last looked.
   </p>
 </div>
 
-## Table of Contents
+## What it is
 
-- [About](#question-about)
-- [Features](#zap-features)
-- [Getting started](#rocket-getting-started)
-- [Usage](#hammer-usage)
-- [Examples](#pencil-examples)
-- [Known TODOs / Bugs](#bug-known-todos--bugs)
-- [Similar tools](#pushpin-similar-tools)
-- [Credits](#heart-credits)
+`grip-live-diff` is a single Go binary that renders a Markdown file in your browser the way GitHub
+would, reloads the page whenever the file changes on disk, and highlights what changed, word by word,
+inside the rendered document.
 
-## :question: About
+It started as a fork of [go-grip](https://github.com/chrishrb/go-grip) by Christoph Herb, a Go
+reimplementation of [grip](https://github.com/joeyespo/grip) that renders offline instead of calling
+GitHub's API. The rendering engine is still go-grip's. What this fork adds is everything around
+*reading a document while something else is writing it*: an editor, a teammate, or an AI agent rewriting
+a spec in place. After an auto-reload the page just looks different and you have to re-read it all to
+find the delta. This tool shows the delta.
 
-**grip-live-diff** is a lightweight, Go-based tool designed to render Markdown files locally, replicating GitHub's style. It offers features like syntax highlighting, dark mode, and support for mermaid diagrams, providing a seamless and visually consistent way to preview Markdown files in your browser.
-
-This project is a fork of [go-grip](https://github.com/chrishrb/go-grip) by Christoph Herb — itself a reimplementation of the original Python-based [grip](https://github.com/joeyespo/grip), which uses GitHub's web API for rendering. By eliminating the reliance on external APIs, grip-live-diff delivers similar functionality while being fully self-contained, faster, and more secure - perfect for offline use or privacy-conscious users.
-
-The fork adds live word-by-word highlighting of what changed on disk since the file was opened, page-width toggling, and built-in self-update.
-
-## :zap: Features
-
-- :zap: Written in Go :+1:
-- 📄 Render markdown to HTML and view it in your browser
-- 📱 Dark and light theme
-- 🎨 Syntax highlighting for code
-- [x] Todo list like the one on GitHub
-- Support for github markdown emojis :+1:
-- Support for mermaid diagrams
-- hashtag linking in page (see table of contents)
-- math expressions (code, inline, block)
-- gh issues and prs #46 and grafana/grafana#22
-- toggle state is preserved in [localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage)
-- highlight what changed on disk since the file was opened, down to the word
-- three page widths — normal, wide, full — switched from the `↔` button
-
-This is an inline $\sqrt{3x-1}+(1+x)^2$ function.
-
-$$\left( \sum_{k=1}^n a_k b_k \right)^2 \leq \left( \sum_{k=1}^n a_k^2 \right) \left( \sum_{k=1}^n b_k^2 \right)$$
-
-```math
-\left( \sum_{k=1}^n a_k b_k \right)^2 \leq \left( \sum_{k=1}^n a_k^2 \right) \left( \sum_{k=1}^n b_k^2 \right)
-```
-
-```mermaid
-graph TD;
-    A-->B;
-    A-->C;
-    B-->D;
-    C-->D;
-```
-
-```go
-package main
-
-import "github.com/babs/grip-live-diff/cmd"
-
-func main() {
-	fmt.Sprintln("Welcome to Grip! Use `grip-live-diff --help` for more information.")
-}
-```
-
-> [!TIP]
-> Support of blockquotes (note, tip, important, warning and caution) [see here](https://github.com/orgs/community/discussions/16925)
-
-> [!IMPORTANT]
->
-> test
-
-## :rocket: Getting started
-
-To install grip-live-diff, simply:
+## Install
 
 ```bash
 go install github.com/babs/grip-live-diff@latest
 ```
 
-Release binaries are available on the [releases page](https://github.com/babs/grip-live-diff/releases). An installed release binary can update itself in place:
+Prebuilt binaries for Linux, macOS and Windows, amd64 and arm64, plus 386 on Linux and Windows, are on the
+[releases page](https://github.com/babs/grip-live-diff/releases), as `.xz` archives (`.zip` too on Windows) plus a
+`grip-live-diff.sha256sum`. A release binary updates itself in place, after checking the published
+checksum:
 
 ```bash
 grip-live-diff update
 ```
 
-## :hammer: Usage
-
-To render the `README.md` file simply execute:
+## Usage
 
 ```bash
-grip-live-diff README.md
-# or
-grip-live-diff
+grip-live-diff README.md   # render one file
+grip-live-diff             # README.md of the current directory, or a file listing if there is none
 ```
 
-The browser will automatically open on http://localhost:6419. You can disable this behaviour with the `-b=false` option.
+The browser opens on http://localhost:6419. The server watches the file's directory, so any `.md`
+under it is served as well, at its own path.
 
-You can also specify a port:
+| Flag                  | Default     | Effect                                                             |
+| --------------------- | ----------- | ------------------------------------------------------------------ |
+| `-p`, `--port`        | `6419`      | Port to listen on                                                  |
+| `-b`, `--browser`     | `true`      | Open a browser tab on start (`-b=false` to disable)                |
+| `--no-reload`         | `false`     | Do not push a reload to the browser when the file changes          |
+| `-H`, `--host`        | `localhost` | Host used in the printed and opened URL (the server binds all interfaces) |
+| `--bounding-box`      | `true`      | Draw the GitHub-style box around the document                      |
+| `--version`           |             | Print version and commit                                           |
 
-```bash
-grip-live-diff -p 80 README.md
-```
+The page title comes from the file name (`my-guide_v2.md` becomes `My Guide V2`). `Ctrl-C` stops the
+server.
 
-or just open a file-tree with all available files in the current directory:
+## Seeing what changed
 
-```bash
-grip-live-diff -r=false
-```
+The `±` button in the toolbar switches the diff on. It carries a dot as soon as the file on disk
+differs from the version you opened, so a reload tells you *something* moved even before you look.
+Clicking it cycles through the references:
 
-It's also possible to activate the darkmode:
+1. off, the document as it is now;
+2. **since open** (`?diff=open`), everything that changed since you opened the file;
+3. **last edit** (`?diff=last`), only what the most recent save brought;
+4. **last commit** (`?diff=head`), everything not committed yet, against `git HEAD`. Offered only
+   when the file is served from a git work tree; a file that has never been committed says so instead
+   of showing the whole document as new.
 
-```bash
-grip-live-diff -d .
-```
+Insertions are green, removals are struck through in red, and the comparison is done on words, not
+lines, so re-wrapping a paragraph is not a change. Inside a code block indentation still counts. The
+diff survives the auto-reload, so the highlights refresh on every save.
 
-To disable automatic browser reload on file changes (useful for stable editing):
+**Mark as read** takes the current disk content as the new reference for *since open* and *last edit*.
+It is not offered against `HEAD`, which is git's to move. The scroll position is kept.
 
-```bash
-grip-live-diff --no-reload README.md
-```
-
-The browser page title is derived from the Markdown filename (`my-guide_v2.md` becomes `My Guide V2`).
-
-### Seeing what changed
-
-The `±` button next to the theme switch shows what moved on disk since the file was opened. While the
-diff is off it carries a dot whenever the file differs from the version you opened; once a diff is on it
-is highlighted instead. Clicking it cycles through four states:
-
-1. off — the document as it is now;
-2. **since open** (`?diff=open`) — every change since you opened the file;
-3. **last edit** (`?diff=last`) — only the change brought by the most recent save;
-4. **last commit** (`?diff=head`) — everything not committed yet, compared against `git HEAD`.
-   This state only appears when the file is served from a git work tree; a file that has never been
-   committed says so instead of showing the whole document as new.
-
-Changes are highlighted inside the rendered document, word by word: insertions in green, removals struck
-through in red. Re-wrapping a paragraph is not a change — only the words are compared, not where the
-lines break — while inside a code block the indentation still counts. Diff mode survives the auto-reload, so the highlights refresh on every save. **Mark as
-read** takes the version currently on disk as the new comparison point (it is not offered against
-`HEAD`, which is git's to move).
+### Minimap
 
 While a diff is on, a minimap of the whole document runs along the right edge, VS Code style: a scaled
 rendering with every insertion and removal marked in green and red, and a box for the part on screen.
-Click it to jump, drag the box to scroll. The button next to "Mark as read" hides it; the choice is kept
-in localStorage, like the theme.
+Click it to jump, drag the box to scroll. On a long document the minimap slides with the page so the
+current position stays visible. The button next to *Mark as read* hides it.
 
-### Page width
+## Toolbar
 
-The `↔` button cycles the page width through **normal** (GitHub's 896px), **wide** (1400px) and
-**full** (no limit). The choice is kept in localStorage, like the theme.
+| Button | Does                                                                              |
+| ------ | --------------------------------------------------------------------------------- |
+| `↔`    | Page width: **normal** (GitHub's 896px), **wide** (1400px), **full** (no limit)   |
+| `±`    | Diff mode, see above                                                              |
+| theme  | Light or dark                                                                     |
 
-To terminate the current server simply press `CTRL-C`.
+Width, theme and minimap visibility are kept in `localStorage`, so they survive restarts. The
+open/closed state of `<details>` blocks and the scroll position survive a reload, per tab.
 
-## :pencil: Examples
+## Rendering
 
-<img src="./.github/docs/example-1.png" alt="examples" width="1000"/>
+Inherited from go-grip, so the output matches GitHub for the things that matter:
 
-## :bug: Known TODOs / Bugs
+- GitHub Flavored Markdown with tables, task lists and footnotes
+- syntax highlighting with a copy button on every code block
+- GitHub emojis (`:+1:`) and `#hashtags` styled like GitHub
+- issue and PR references (`grafana/grafana#22`) linked to GitHub
+- mermaid diagrams, with zoom
+- math, inline (`$...$`), block (`$$...$$`) and in `math` code fences
+- alerts (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`)
+- YAML frontmatter rendered as a table
+- a print stylesheet
 
-- [ ] Make it possible to export the generated html
+Open this README in the tool to see three of them:
 
-## :pushpin: Similar tools
+```mermaid
+graph LR;
+    edit[file changes] --> reload --> diff[diff highlighted]
+```
 
-This tool is a Go-based reimplementation of the original [grip](https://github.com/joeyespo/grip), offering the same functionality without relying on GitHub's web API.
+$$\left( \sum_{k=1}^n a_k b_k \right)^2 \leq \left( \sum_{k=1}^n a_k^2 \right) \left( \sum_{k=1}^n b_k^2 \right)$$
 
-## :heart: Credits
+> [!TIP]
+> Set `?diff=head` in the URL to review your uncommitted edits to a document before committing.
 
-Original work by [Christoph Herb](https://github.com/chrishrb/go-grip).
+<img src="./.github/docs/example-1.png" alt="A spec in diff mode, with the minimap" width="1000"/>
+
+## Development
+
+Tooling is pinned in `mise.toml` (Go, golangci-lint, prek):
+
+```bash
+mise run build   # -> bin/grip-live-diff
+mise run test
+mise run lint
+```
+
+Features start as a spec in [`specs/`](specs/README.md) before any code. `release.sh` builds the
+release matrix and the checksum file; the `Build and release` workflow runs it on every `v*` tag.
+
+## Lineage
+
+- [grip](https://github.com/joeyespo/grip) by Joe Esposito: the original, Python, rendering through
+  GitHub's API.
+- [go-grip](https://github.com/chrishrb/go-grip) by Christoph Herb: the offline Go rewrite this
+  project forks. Rendering, theming, mermaid, math and emoji support are his work.
+- grip-live-diff: the live diff, minimap, width toggle, git `HEAD` comparison and self-update.
+
+MIT, see [LICENSE](LICENSE).
