@@ -279,10 +279,12 @@ type htmlStruct struct {
 	DiffEmpty       bool
 	DiffUnavailable bool
 	DiffRefMissing  bool
-	CanMarkAsRead   bool
 	DiffHref        string
 	DiffTitle       string
-	DiffLabel       string
+	DiffLabel       string // note under the reference picker, only when HEAD cannot be read
+
+	MarkReadDisabled bool
+	MarkReadTitle    string
 }
 
 func (s *Server) pageTitle(filename string) string {
@@ -315,38 +317,33 @@ func formatFilenameTitle(filename string) string {
 	return strings.Join(words, " ")
 }
 
-// diffControls fills the labels of the toggle, which cycles off → since open → last edit
-// → last commit (only inside a git work tree) → off.
+// diffControls fills the on/off toggle and the mark-as-read button. The reference itself
+// is picked from the segmented control the template renders from DiffMode.
 func (h *htmlStruct) diffControls() {
-	h.CanMarkAsRead = h.DiffMode != diffModeHead // the git reference is not ours to move
-
-	switch h.DiffMode {
-	case diffModeOpen:
-		h.DiffHref = h.Path + "?diff=" + diffModeLast
-		h.DiffTitle = "Comparing with the version opened — switch to the last edit only"
-		h.DiffLabel = "Diff mode: since file open"
-	case diffModeLast:
-		h.DiffHref = h.Path
-		h.DiffTitle = "Comparing with the version before the last edit — click to hide changes"
-		if h.HasGit {
-			h.DiffHref = h.Path + "?diff=" + diffModeHead
-			h.DiffTitle = "Comparing with the version before the last edit — switch to the last commit"
-		}
-		h.DiffLabel = "Diff mode: last edit"
-	case diffModeHead:
-		h.DiffHref = h.Path
-		h.DiffTitle = "Comparing with the last commit — click to hide changes"
-		switch {
-		case h.DiffRefMissing:
-			h.DiffLabel = "Diff mode: no committed version to compare with"
-		case h.DiffUnavailable:
-			h.DiffLabel = "Diff mode: commit reference could not be read"
-		default:
-			h.DiffLabel = "Diff mode: since last commit"
-		}
-	default:
+	if h.DiffMode == "" {
 		h.DiffHref = h.Path + "?diff=" + diffModeOpen
-		h.DiffTitle = "Show changes since this file was opened"
+		h.DiffTitle = "Show changes"
+		return
+	}
+	h.DiffHref = h.Path
+	h.DiffTitle = "Hide changes"
+
+	switch {
+	case h.DiffMode == diffModeHead:
+		h.MarkReadDisabled = true
+		h.MarkReadTitle = "The commit reference is git's to move"
+	case h.DiffEmpty:
+		h.MarkReadDisabled = true
+		h.MarkReadTitle = "Nothing new to read"
+	default:
+		h.MarkReadTitle = "Take the current content as the new reference"
+	}
+
+	switch {
+	case h.DiffRefMissing:
+		h.DiffLabel = "No committed version to compare with"
+	case h.DiffUnavailable:
+		h.DiffLabel = "Commit reference could not be read"
 	}
 }
 
@@ -373,15 +370,19 @@ func (s *Server) buildPage(r *http.Request, dir http.Dir, hasGit bool, content, 
 	case diffModeLast:
 		page.DiffMode, reference = diffModeLast, prev
 	case diffModeHead:
-		if hasGit {
-			page.DiffMode = diffModeHead
-			head, err := gitHeadContent(r.Context(), dir, r.URL.Path)
-			if err != nil {
-				page.DiffUnavailable = true
-				page.DiffRefMissing = errors.Is(err, errNoCommittedVersion)
-			}
-			reference = head
+		if !hasGit {
+			// The toggle comes back to the last reference used, which may be HEAD from
+			// another directory: stay in diff mode rather than silently showing nothing.
+			page.DiffMode, reference = diffModeOpen, baseline
+			break
 		}
+		page.DiffMode = diffModeHead
+		head, err := gitHeadContent(r.Context(), dir, r.URL.Path)
+		if err != nil {
+			page.DiffUnavailable = true
+			page.DiffRefMissing = errors.Is(err, errNoCommittedVersion)
+		}
+		reference = head
 	}
 
 	switch {

@@ -112,8 +112,11 @@ func TestDiffModeAnnotatesChangesSinceOpen(t *testing.T) {
 	if !strings.Contains(body, `<del class="gg-del">bravo`) {
 		t.Fatalf("expected the replaced word to be marked as deleted, got %q", body)
 	}
-	if !strings.Contains(body, "Diff mode: since file open") {
-		t.Fatalf("expected the diff banner, got %q", body)
+	if !strings.Contains(body, `diff-ref-active" aria-current="page" href="`+docPath+`?diff=open"`) {
+		t.Fatalf("expected the picker to select the open reference, got %q", body)
+	}
+	if strings.Count(body, `aria-current="page"`) != 1 {
+		t.Fatalf("expected exactly one current reference, got %q", body)
 	}
 	// The redirect back into the same mode depends on this hidden field.
 	if !strings.Contains(body, `name="diff" value="open"`) {
@@ -190,8 +193,8 @@ func TestDiffModeWithoutChangesReportsNothing(t *testing.T) {
 	f.get(docPath)
 
 	body := f.get(docPath + "?diff=open")
-	if !strings.Contains(body, "Diff mode: since file open") {
-		t.Fatalf("expected the diff status line, got %q", body)
+	if !strings.Contains(body, `diff-ref-active" aria-current="page" href="`+docPath+`?diff=open"`) {
+		t.Fatalf("expected the picker to select the open reference, got %q", body)
 	}
 	if strings.Contains(body, "gg-ins") || strings.Contains(body, "gg-del") {
 		t.Fatalf("expected no diff markup for an unchanged file, got %q", body)
@@ -213,12 +216,13 @@ func TestDiffHeadComparesWithTheLastCommit(t *testing.T) {
 	if !strings.Contains(body, `<ins class="gg-ins">charlie</ins>`) {
 		t.Fatalf("expected the uncommitted change to be marked, got %q", body)
 	}
-	if !strings.Contains(body, "Diff mode: since last commit") {
-		t.Fatalf("expected the commit banner, got %q", body)
+	if !strings.Contains(body, `diff-ref-active" aria-current="page" href="`+docPath+`?diff=head"`) {
+		t.Fatalf("expected the picker to select the commit reference, got %q", body)
 	}
-	// The git reference is not ours to move.
-	if strings.Contains(body, "Mark as read") {
-		t.Fatalf("expected no reset button against the commit reference, got %q", body)
+	// The git reference is not ours to move: the button stays, greyed out, so the reader
+	// sees why rather than wondering where it went.
+	if !markReadDisabled.MatchString(body) {
+		t.Fatalf("expected a disabled mark-as-read button against the commit reference, got %q", body)
 	}
 }
 
@@ -231,7 +235,7 @@ func TestDiffHeadOnAnUntrackedFileReportsNoReference(t *testing.T) {
 	f.get(docPath)
 
 	body := f.get(docPath + "?diff=" + diffModeHead)
-	if !strings.Contains(body, "Diff mode: no committed version to compare with") {
+	if !strings.Contains(body, "No committed version to compare with") {
 		t.Fatalf("expected the missing-reference banner, got %q", body)
 	}
 	if strings.Contains(body, "gg-ins") || strings.Contains(body, "gg-del") {
@@ -247,7 +251,7 @@ func TestDiffHeadWithBrokenGitReportsUnreadableReference(t *testing.T) {
 
 	t.Setenv("PATH", "")
 	body := f.get(docPath + "?diff=" + diffModeHead)
-	if !strings.Contains(body, "Diff mode: commit reference could not be read") {
+	if !strings.Contains(body, "Commit reference could not be read") {
 		t.Fatalf("expected the unreadable-reference banner, got %q", body)
 	}
 	if strings.Contains(body, "no committed version") {
@@ -255,7 +259,9 @@ func TestDiffHeadWithBrokenGitReportsUnreadableReference(t *testing.T) {
 	}
 }
 
-func TestDiffToggleSkipsTheCommitStateOutsideAGitRepository(t *testing.T) {
+// The toggle reopens the last reference used, which may be HEAD remembered from another
+// directory: outside a repository that must land on "since open", not on a plain page.
+func TestDiffHeadOutsideAGitRepositoryFallsBackToOpen(t *testing.T) {
 	t.Parallel()
 
 	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
@@ -263,11 +269,12 @@ func TestDiffToggleSkipsTheCommitStateOutsideAGitRepository(t *testing.T) {
 		t.Skip("TMPDIR sits inside a git work tree: this test needs a directory outside any repository")
 	}
 
-	if body := f.get(docPath + "?diff=" + diffModeLast); !strings.Contains(body, `href="`+docPath+`"`) {
-		t.Fatalf("expected the toggle to cycle back to the plain document, got %q", body)
+	body := f.get(docPath + "?diff=" + diffModeHead)
+	if !strings.Contains(body, `diff-ref-active" aria-current="page" href="`+docPath+`?diff=open"`) {
+		t.Fatalf("expected the picker to fall back to the open reference, got %q", body)
 	}
-	if body := f.get(docPath + "?diff=" + diffModeHead); strings.Contains(body, "diff-status") {
-		t.Fatalf("expected the commit reference to be unavailable, got %q", body)
+	if !strings.Contains(body, "diff-ref-disabled") {
+		t.Fatalf("expected the commit reference to be offered greyed out, got %q", body)
 	}
 }
 
