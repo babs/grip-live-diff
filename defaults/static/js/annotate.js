@@ -8,7 +8,7 @@
   // text does not exist in the source), the code-block copy buttons.
   var SKIP = "del.gg-del, .mermaid, .math, mjx-container, script, style, button, [hidden]";
 
-  var article, model, entries = [], doc = { annotations: [] }, pending = null, current = null;
+  var article, model, entries = [], doc = { annotations: [] }, pending = null, current = null, hovered = null;
   var bubble, tip, box, textarea, meta, hitFrame;
 
   var supported = "highlights" in CSS && typeof Highlight === "function";
@@ -160,7 +160,9 @@
       if (!entry.ranges.length) return;
       var group = a.status === "done" ? "annot-done" : entry.fuzzy ? "annot-fuzzy" : "annot";
       groups[group].push.apply(groups[group], entry.ranges);
-      if (current && current.a.id === a.id) groups["annot-active"].push.apply(groups["annot-active"], entry.ranges);
+      if ((current && current.a.id === a.id) || (hovered && hovered.a.id === a.id)) {
+        groups["annot-active"].push.apply(groups["annot-active"], entry.ranges);
+      }
     });
     Object.keys(groups).forEach(function (name) {
       CSS.highlights.set(name, new Highlight(...groups[name]));
@@ -217,8 +219,27 @@
         current = entry;
         step(0);
       });
+      // Hovering an item lights its mark in the text, without opening or scrolling.
+      item.addEventListener("mouseenter", function () {
+        hovered = entry;
+        paint();
+      });
+      item.addEventListener("mouseleave", function () {
+        hovered = null;
+        paint();
+      });
       list.append(item);
     });
+  }
+
+  // Only the active group changes on hover: a full draw would rebuild the list under the
+  // pointer and fire mouseleave.
+  function paint() {
+    var ranges = [];
+    entries.forEach(function (e) {
+      if ((current && current.a.id === e.a.id) || (hovered && hovered.a.id === e.a.id)) ranges.push.apply(ranges, e.ranges);
+    });
+    CSS.highlights.set("annot-active", new Highlight(...ranges));
   }
 
   function byId(id) {

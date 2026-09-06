@@ -137,8 +137,8 @@ written against and whether the file changed since; a passage that was reworded 
 surroundings and drawn with a dashed underline, a passage that disappeared with its surroundings is
 kept in the file and reachable last. An entry answered by the agent turns grey and shows the reply.
 
-Saving writes the sidecar, which the watcher treats like any change: the page reloads and the marks are
-redrawn. Marks need the CSS Custom Highlight API (Chrome 105, Firefox 140, Safari 17.2); older
+The marks are also listed at the foot of the document, in the same order; hovering an item lights its
+mark, clicking it opens the comment. Saving writes the sidecar without reloading the page. Marks need the CSS Custom Highlight API (Chrome 105, Firefox 140, Safari 17.2); older
 browsers keep the file but draw nothing.
 
 ## Toolbar
