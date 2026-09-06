@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"path"
 	"regexp"
@@ -206,6 +207,9 @@ func (s *Server) newHandler(dir http.Dir) http.Handler {
 	mux.HandleFunc("/__baseline", func(w http.ResponseWriter, r *http.Request) {
 		s.handleResetBaseline(w, r, dir, regex)
 	})
+	mux.HandleFunc("/__annotations", func(w http.ResponseWriter, r *http.Request) {
+		s.handleAnnotations(w, r, dir, regex)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if regex.MatchString(r.URL.Path) {
 			isFile, err := isRegularFile(dir, r.URL.Path)
@@ -285,6 +289,9 @@ type htmlStruct struct {
 
 	MarkReadDisabled bool
 	MarkReadTitle    string
+
+	FileHash       string
+	HasAnnotations bool
 }
 
 func (s *Server) pageTitle(filename string) string {
@@ -361,6 +368,11 @@ func (s *Server) buildPage(r *http.Request, dir http.Dir, hasGit bool, content, 
 		Path:         r.URL.Path,
 		HasChanges:   !bytes.Equal(baseline, content),
 		HasGit:       hasGit,
+		FileHash:     fileHash(content),
+	}
+	// A stat, not a read: rendering must never wait on an agent holding the sidecar lock.
+	if info, err := os.Stat(sidecarPath(dir, r.URL.Path)); err == nil {
+		page.HasAnnotations = info.Size() > 0
 	}
 
 	var reference []byte
@@ -411,20 +423,13 @@ func (s *Server) handleResetBaseline(w http.ResponseWriter, r *http.Request, dir
 		return
 	}
 
-	// The server listens on every interface, so a page from another origin must not be
-	// able to silently drop the comparison point.
-	if origin := r.Header.Get("Origin"); origin != "" {
-		u, err := url.Parse(origin)
-		if err != nil || u.Host != r.Host {
-			http.Error(w, "cross-origin request refused", http.StatusForbidden)
-			return
-		}
+	if !sameOrigin(r) {
+		http.Error(w, "cross-origin request refused", http.StatusForbidden)
+		return
 	}
 
 	target := r.FormValue("path")
-	// Only a markdown path of this server is acceptable, so the redirect below can never
-	// be pointed at another host.
-	if !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") || !regex.MatchString(target) {
+	if !isMarkdownTarget(target, regex) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
