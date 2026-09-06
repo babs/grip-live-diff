@@ -91,6 +91,56 @@ rendering with every insertion and removal marked in green and red, and a box fo
 Click it to jump, drag the box to scroll. On a long document the minimap slides with the page so the
 current position stays visible. The button next to *Mark as read* hides it.
 
+## Annotating for an agent
+
+When the thing rewriting the file is an agent, the feedback loop has a gap: you read the preview, spot
+a sentence to rework, then describe *where* it is in the chat. Annotations close it. Turn capture on
+with the pencil button, select text, click **Annotate** (or press `a`) and type what should change.
+The passage is marked Confluence-style, a yellow tint with an orange underline, and the comment is
+saved next to the file as `<name>.annotations.json5`:
+
+```json5
+// grip-live-diff annotations for README.md. JSON5: comments and trailing commas are fine.
+// ... how to take part, what not to touch, the entry format ...
+{
+  "version": 1,
+  "file": "README.md",
+  "annotations": [
+    {
+      "id": "k3f9x2",
+      "exact": "the quick brown fox",
+      "prefix": "e sentence before it ends with ",
+      "suffix": " jumps over the lazy dog. Then",
+      "lines": [42, 42],
+      "comment": "Too informal, rephrase.",
+      "created": "2026-09-05T11:52:03+02:00",
+      "updated": null,
+      "file_hash": "sha256:3b2f…"
+    }
+  ]
+}
+```
+
+Then hand the file to the agent: *"handle the comments in README.annotations.json5"*. The header of
+the file tells it the rules: take an `flock` on the file while editing it; once a request is handled,
+set `status: "done"` with a short `reply`, or delete the entry; when it rewrites an annotated passage,
+put the new wording in `exact` so the mark follows; `id`, `created`, `file_hash` and `comment` are
+the reader's and must not change. `lines` is a hint into the markdown source, recomputed at every save
+from the browser, so `exact` is the truth. A comment with `exact: null` is about the whole document
+(the document button, or `A`).
+
+Marks are drawn whenever the file has annotations, capture on or off. Hovering one shows the comment
+and the agent's reply; clicking it opens the comment to edit or delete. The row under the toolbar walks
+through them, `n` and `p` do the same: document-level comments first, then in document order, then
+the ones whose text is gone from the file. Each comment box says which version of the file it was
+written against and whether the file changed since; a passage that was reworded is re-anchored on its
+surroundings and drawn with a dashed underline, a passage that disappeared with its surroundings is
+kept in the file and reachable last. An entry answered by the agent turns grey and shows the reply.
+
+The marks are also listed at the foot of the document, in the same order; hovering an item lights its
+mark, clicking it opens the comment. Saving writes the sidecar without reloading the page. Marks need the CSS Custom Highlight API (Chrome 105, Firefox 140, Safari 17.2); older
+browsers keep the file but draw nothing.
+
 ## Toolbar
 
 | Button | Does                                                                              |
@@ -98,10 +148,14 @@ current position stays visible. The button next to *Mark as read* hides it.
 | `↔`    | Page width: **normal** (GitHub's 896px), **wide** (1400px), **full** (no limit)   |
 | `±`    | Diff on/off, see above                                                            |
 | theme  | Light or dark                                                                     |
+| pencil | Annotation capture on/off, see above                                              |
 
-Keys: `d` toggles the diff, `1` `2` `3` pick the reference.
+Keys: `d` toggles the diff, `1` `2` `3` pick the reference, `n` `p` walk the annotations, `a`
+annotates the selection, `A` comments on the whole document, `Esc` closes a comment box, `Ctrl-Enter`
+saves it.
 
-Width, theme, minimap visibility and the last diff reference are kept in `localStorage`, so they
+Width, theme, minimap visibility, annotation capture and the last diff reference are kept in
+`localStorage`, so they
 survive restarts. The open/closed state of `<details>` blocks and the scroll position survive a
 reload, per tab.
 
@@ -152,6 +206,7 @@ release matrix and the checksum file; the `Build and release` workflow runs it o
   GitHub's API.
 - [go-grip](https://github.com/chrishrb/go-grip) by Christoph Herb: the offline Go rewrite this
   project forks. Rendering, theming, mermaid, math and emoji support are his work.
-- grip-live-diff: the live diff, minimap, width toggle, git `HEAD` comparison and self-update.
+- grip-live-diff: the live diff, minimap, inline annotations for an agent, width toggle, git `HEAD`
+  comparison and self-update.
 
 MIT, see [LICENSE](LICENSE).

@@ -3,12 +3,12 @@ module github.com/babs/grip-live-diff
 go 1.26
 
 require (
-	github.com/aarol/reload v1.2.0
 	github.com/alecthomas/chroma/v2 v2.14.0
 	github.com/minio/selfupdate v0.6.0
 	github.com/sergi/go-diff v1.4.0
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.11.1
+	github.com/titanous/json5 v1.0.0
 	github.com/ulikunitz/xz v0.5.16
 	golang.org/x/mod v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -24,10 +24,9 @@ require (
 )
 
 require (
-	github.com/bep/debounce v1.2.1 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
-	github.com/fsnotify/fsnotify v1.8.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/fsnotify/fsnotify v1.8.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/yuin/goldmark v1.7.17

@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"path"
 	"regexp"
@@ -19,7 +19,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/aarol/reload"
 	chroma_html "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/babs/grip-live-diff/defaults"
@@ -52,6 +51,7 @@ type Server struct {
 	port         int
 	browser      bool
 	enableReload bool
+	reload       *reloader
 
 	mu        sync.Mutex
 	snapshots map[string]*snapshot
@@ -103,6 +103,7 @@ func NewServer(host string, port int, boundingBox bool, browser bool, enableRelo
 		browser:      browser,
 		enableReload: enableReload,
 		parser:       parser,
+		reload:       newReloader(),
 		snapshots:    make(map[string]*snapshot),
 	}
 }
@@ -147,16 +148,6 @@ func (s *Server) Serve(file string) error {
 	directory := path.Dir(file)
 	filename := path.Base(file)
 
-	var reloadMiddleware *reload.Reloader
-	if s.enableReload {
-		reloadMiddleware = reload.New(directory)
-		reloadMiddleware.DebugLog = log.New(io.Discard, "", 0)
-		// Fix WebSocket CORS issues for development
-		reloadMiddleware.Upgrader.CheckOrigin = func(r *http.Request) bool {
-			return true
-		}
-	}
-
 	dir := http.Dir(directory)
 	handler := s.newHandler(dir)
 
@@ -186,7 +177,12 @@ func (s *Server) Serve(file string) error {
 	}
 
 	if s.enableReload {
-		handler = reloadMiddleware.Handle(handler)
+		// The sidecar is written by the page itself: reloading on it would flash the page
+		// on every comment saved.
+		err := s.reload.watch(directory, func(name string) bool { return strings.HasSuffix(name, sidecarSuffix) })
+		if err != nil {
+			return fmt.Errorf("watch %s: %w", directory, err)
+		}
 		fmt.Printf("📡 Auto-reload enabled. Files will trigger browser refresh.\n")
 	} else {
 		fmt.Printf("🔄 Auto-reload disabled. Use F5 to manually refresh.\n")
@@ -201,10 +197,16 @@ func (s *Server) newHandler(dir http.Dir) http.Handler {
 	fileServer := http.FileServer(dir)
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.FileServer(http.FS(defaults.StaticFiles)))
+	if s.enableReload {
+		mux.HandleFunc(reloadEndpoint, s.reload.serveWS)
+	}
 
 	regex := regexp.MustCompile(`(?i)\.md$`)
 	mux.HandleFunc("/__baseline", func(w http.ResponseWriter, r *http.Request) {
 		s.handleResetBaseline(w, r, dir, regex)
+	})
+	mux.HandleFunc("/__annotations", func(w http.ResponseWriter, r *http.Request) {
+		s.handleAnnotations(w, r, dir, regex)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if regex.MatchString(r.URL.Path) {
@@ -285,6 +287,10 @@ type htmlStruct struct {
 
 	MarkReadDisabled bool
 	MarkReadTitle    string
+
+	FileHash       string
+	HasAnnotations bool
+	ReloadScript   template.HTML
 }
 
 func (s *Server) pageTitle(filename string) string {
@@ -361,6 +367,14 @@ func (s *Server) buildPage(r *http.Request, dir http.Dir, hasGit bool, content, 
 		Path:         r.URL.Path,
 		HasChanges:   !bytes.Equal(baseline, content),
 		HasGit:       hasGit,
+		FileHash:     fileHash(content),
+	}
+	if s.enableReload {
+		page.ReloadScript = reloadScript
+	}
+	// A stat, not a read: rendering must never wait on an agent holding the sidecar lock.
+	if info, err := os.Stat(sidecarPath(dir, r.URL.Path)); err == nil {
+		page.HasAnnotations = info.Size() > 0
 	}
 
 	var reference []byte
@@ -411,20 +425,13 @@ func (s *Server) handleResetBaseline(w http.ResponseWriter, r *http.Request, dir
 		return
 	}
 
-	// The server listens on every interface, so a page from another origin must not be
-	// able to silently drop the comparison point.
-	if origin := r.Header.Get("Origin"); origin != "" {
-		u, err := url.Parse(origin)
-		if err != nil || u.Host != r.Host {
-			http.Error(w, "cross-origin request refused", http.StatusForbidden)
-			return
-		}
+	if !sameOrigin(r) {
+		http.Error(w, "cross-origin request refused", http.StatusForbidden)
+		return
 	}
 
 	target := r.FormValue("path")
-	// Only a markdown path of this server is acceptable, so the redirect below can never
-	// be pointed at another host.
-	if !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") || !regex.MatchString(target) {
+	if !isMarkdownTarget(target, regex) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
