@@ -28,6 +28,7 @@
     <script src="/static/js/theme-switch.js"></script>
     <script src="/static/js/width-switch.js"></script>
     <script src="/static/js/scroll-keep.js"></script>
+    <script src="/static/js/diff-switch.js"></script>
     <script src="/static/js/clipboard-copy.js"></script>
     <script src="/static/js/mathjax-options.js"></script>
     <script src="/static/js/tex-mml-chtml.js"></script>
@@ -63,8 +64,35 @@
         </button>
       </div>
       {{if .DiffMode}}
-      <div class="toolbar-row diff-status">
+      <div class="toolbar-row diff-status" data-diff-mode="{{ .DiffMode }}">
+        <nav class="diff-refs" aria-label="Diff reference">
+          <a class="diff-ref{{if eq .DiffMode "open"}} diff-ref-active{{end}}" {{if eq .DiffMode "open"}}aria-current="page"{{end}} href="{{ .Path }}?diff=open" title="Everything that changed since you opened the file (1)">since open</a>
+          <a class="diff-ref{{if eq .DiffMode "last"}} diff-ref-active{{end}}" {{if eq .DiffMode "last"}}aria-current="page"{{end}} href="{{ .Path }}?diff=last" title="Only what the most recent save brought (2)">last edit</a>
+          {{if .HasGit}}
+          <a class="diff-ref{{if eq .DiffMode "head"}} diff-ref-active{{end}}" {{if eq .DiffMode "head"}}aria-current="page"{{end}} href="{{ .Path }}?diff=head" title="Everything not committed yet (3)">HEAD</a>
+          {{else}}
+          <span class="diff-ref diff-ref-disabled" title="Not a git work tree">HEAD</span>
+          {{end}}
+        </nav>
+      </div>
+      {{if .DiffLabel}}
+      <div class="toolbar-row">
         <span class="diff-status-label">{{ .DiffLabel }}</span>
+      </div>
+      {{end}}
+      <div class="toolbar-row">
+        <form method="post" action="/__baseline" class="mark-read-form">
+          <input type="hidden" name="path" value="{{ .Path }}" />
+          <input type="hidden" name="diff" value="{{ .DiffMode }}" />
+          <button type="submit" class="theme-toggle mark-read" {{if .MarkReadDisabled}}disabled{{end}} title="{{ .MarkReadTitle }}">
+            <span class="theme-toggle-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2.5 8.5l3.5 3.5 7-8" />
+              </svg>
+              Mark as read
+            </span>
+          </button>
+        </form>
         <button id="minimap-toggle" class="theme-toggle minimap-toggle" title="Toggle minimap" aria-label="Toggle minimap" aria-pressed="true">
           <span class="theme-toggle-icon">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -73,19 +101,6 @@
             </svg>
           </span>
         </button>
-        {{if .CanMarkAsRead}}
-        <form method="post" action="/__baseline" class="mark-read-form">
-          <input type="hidden" name="path" value="{{ .Path }}" />
-          <input type="hidden" name="diff" value="{{ .DiffMode }}" />
-          <button type="submit" class="theme-toggle mark-read" {{if .DiffEmpty}}disabled{{end}} title="Mark as read" aria-label="Mark as read">
-            <span class="theme-toggle-icon">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M2.5 8.5l3.5 3.5 7-8" />
-              </svg>
-            </span>
-          </button>
-        </form>
-        {{end}}
       </div>
       {{end}}
     </div>

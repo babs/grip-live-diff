@@ -64,23 +64,25 @@ server.
 
 ## Seeing what changed
 
-The `±` button in the toolbar switches the diff on. It carries a dot as soon as the file on disk
-differs from the version you opened, so a reload tells you *something* moved even before you look.
-Clicking it cycles through the references:
+The `±` button in the toolbar switches the diff on and off (key `d`). It carries a dot as soon as the
+file on disk differs from the version you opened, so a reload tells you *something* moved even before
+you look. With the diff on, a second row picks the reference, one click each:
 
-1. off, the document as it is now;
-2. **since open** (`?diff=open`), everything that changed since you opened the file;
-3. **last edit** (`?diff=last`), only what the most recent save brought;
-4. **last commit** (`?diff=head`), everything not committed yet, against `git HEAD`. Offered only
-   when the file is served from a git work tree; a file that has never been committed says so instead
-   of showing the whole document as new.
+- **since open** (`?diff=open`, key `1`), everything that changed since you opened the file;
+- **last edit** (`?diff=last`, key `2`), only what the most recent save brought;
+- **HEAD** (`?diff=head`, key `3`), everything not committed yet, against `git HEAD`. Greyed out
+  when the file is not served from a git work tree; a file that has never been committed says so
+  instead of showing the whole document as new.
+
+Switching the diff back on returns to the reference you used last.
 
 Insertions are green, removals are struck through in red, and the comparison is done on words, not
 lines, so re-wrapping a paragraph is not a change. Inside a code block indentation still counts. The
 diff survives the auto-reload, so the highlights refresh on every save.
 
 **Mark as read** takes the current disk content as the new reference for *since open* and *last edit*.
-It is not offered against `HEAD`, which is git's to move. The scroll position is kept.
+It is greyed out against `HEAD`, which is git's to move, and when there is nothing new. The scroll
+position is kept.
 
 ### Minimap
 
@@ -94,11 +96,14 @@ current position stays visible. The button next to *Mark as read* hides it.
 | Button | Does                                                                              |
 | ------ | --------------------------------------------------------------------------------- |
 | `↔`    | Page width: **normal** (GitHub's 896px), **wide** (1400px), **full** (no limit)   |
-| `±`    | Diff mode, see above                                                              |
+| `±`    | Diff on/off, see above                                                            |
 | theme  | Light or dark                                                                     |
 
-Width, theme and minimap visibility are kept in `localStorage`, so they survive restarts. The
-open/closed state of `<details>` blocks and the scroll position survive a reload, per tab.
+Keys: `d` toggles the diff, `1` `2` `3` pick the reference.
+
+Width, theme, minimap visibility and the last diff reference are kept in `localStorage`, so they
+survive restarts. The open/closed state of `<details>` blocks and the scroll position survive a
+reload, per tab.
 
 ## Rendering
 

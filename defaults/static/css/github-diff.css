@@ -28,9 +28,85 @@
   color: #656d76;
 }
 
-/* Green only when there is something to acknowledge; greyed out otherwise. */
+/* Green only when there is something to acknowledge; greyed out otherwise. The label sits
+   inside the icon span so the per-theme colour rules below cover it. */
 .mark-read {
   opacity: 1;
+  width: auto;
+  padding: 0 10px 0 8px;
+  font: inherit;
+  font-size: 12px;
+}
+.mark-read .theme-toggle-icon {
+  gap: 4px;
+}
+
+/* Reference picker: a segmented control, one click to any reference, the current one
+   filled. Colours as variables so the three theme selectors set them once. */
+:root {
+  --gld-border: #d0d7de;
+  --gld-fg: #656d76;
+  --gld-fg-strong: #1f2328;
+  --gld-track: #f6f8fa;
+  --gld-active-bg: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --gld-border: #484f58;
+    --gld-fg: #8b949e;
+    --gld-fg-strong: #e6edf3;
+    --gld-track: #161b22;
+    --gld-active-bg: #30363d;
+  }
+}
+body[data-theme="dark"] {
+  --gld-border: #484f58;
+  --gld-fg: #8b949e;
+  --gld-fg-strong: #e6edf3;
+  --gld-track: #161b22;
+  --gld-active-bg: #30363d;
+}
+body[data-theme="light"] {
+  --gld-border: #d0d7de;
+  --gld-fg: #656d76;
+  --gld-fg-strong: #1f2328;
+  --gld-track: #f6f8fa;
+  --gld-active-bg: #ffffff;
+}
+.diff-refs {
+  display: flex;
+  height: 32px;
+  box-sizing: border-box;
+  border: 1px solid var(--gld-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--gld-track);
+  font-size: 12px;
+}
+/* Prefixed with .markdown-body to outrank its link colour and hover underline. */
+.markdown-body .diff-ref {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  color: var(--gld-fg);
+  border-left: 1px solid var(--gld-border);
+  text-decoration: none;
+}
+.markdown-body .diff-ref:first-child {
+  border-left: 0;
+}
+.markdown-body .diff-ref:hover {
+  color: var(--gld-fg-strong);
+  text-decoration: none;
+}
+.markdown-body .diff-ref-active {
+  background: var(--gld-active-bg);
+  color: var(--gld-fg-strong);
+  font-weight: 600;
+}
+.markdown-body .diff-ref-disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .mark-read .theme-toggle-icon {
   color: #1a7f37;
