@@ -165,8 +165,50 @@
     Object.keys(groups).forEach(function (name) {
       CSS.highlights.set(name, new Highlight(...groups[name]));
     });
+    // Entries are rebuilt on every draw: the open one is re-found by id or it would fall
+    // out of the navigation order.
+    if (current) current = byId(current.a.id);
     var nav = document.querySelector(".annotations-nav");
     if (nav) nav.hidden = !(doc.annotations.length || wanted());
+    var counter = document.getElementById("annotation-counter");
+    if (counter) {
+      var at = current ? ordered().indexOf(current) + 1 : 0;
+      counter.textContent = entries.length ? (at ? at + "/" : "") + entries.length : "";
+    }
+  }
+
+  function byId(id) {
+    for (var i = 0; i < entries.length; i++) if (entries[i].a.id === id) return entries[i];
+    return null;
+  }
+
+  // Navigation order: whole-document comments, then the marks in document order, then the
+  // orphans whose text is gone.
+  function ordered() {
+    return entries.slice().sort(function (x, y) {
+      var kx = x.a.exact ? (x.ranges.length ? 1 : 2) : 0;
+      var ky = y.a.exact ? (y.ranges.length ? 1 : 2) : 0;
+      if (kx !== ky) return kx - ky;
+      return kx === 1 ? x.start - y.start : 0;
+    });
+  }
+
+  function step(delta) {
+    var list = ordered();
+    if (!list.length) return;
+    var i = current ? list.indexOf(current) : delta > 0 ? -1 : list.length;
+    var entry = list[(i + delta + list.length) % list.length];
+    if (entry.ranges.length) {
+      var rect = entry.ranges[0].getBoundingClientRect();
+      if (rect.top < 80 || rect.bottom > window.innerHeight - 240) {
+        window.scrollBy({ top: rect.top - window.innerHeight / 3, behavior: "instant" });
+      }
+    }
+    openBox(entry, null);
+  }
+
+  function typing(target) {
+    return target.closest && target.closest("input, textarea, select, [contenteditable]");
   }
 
   function load() {
@@ -389,6 +431,20 @@
         openBox(null, null);
       });
     }
+    var prev = document.getElementById("annotation-prev"), next = document.getElementById("annotation-next");
+    if (prev) prev.addEventListener("click", function () { step(-1); });
+    if (next) next.addEventListener("click", function () { step(1); });
+
+    document.addEventListener("keydown", function (ev) {
+      if (ev.ctrlKey || ev.metaKey || ev.altKey || typing(ev.target)) return;
+      if (ev.key === "n") step(1);
+      else if (ev.key === "p") step(-1);
+      else if (ev.key === "a" && wanted() && pending && !bubble.hidden) openBox(null, pending);
+      else if (ev.key === "A" && wanted()) openBox(null, null);
+      else if (ev.key === "Escape") closeBox();
+      else return;
+      ev.preventDefault();
+    });
 
     document.addEventListener("selectionchange", function () {
       if (wanted()) showBubble();
