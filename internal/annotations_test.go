@@ -255,6 +255,11 @@ func TestPageCarriesTheAnnotationControls(t *testing.T) {
 	if !strings.Contains(body, `class="toolbar-row annotations-nav" hidden`) {
 		t.Fatalf("expected the navigation row hidden without annotations, got %q", body)
 	}
+	for _, want := range []string{`<script src="/static/js/annotate.js"></script>`, `<link rel="stylesheet" href="/static/css/annotate.css" />`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %q on every page, got %q", want, body)
+		}
+	}
 
 	f.put(`[{"exact":"alpha","comment":"one"}]`)
 	body = f.get(docPath)

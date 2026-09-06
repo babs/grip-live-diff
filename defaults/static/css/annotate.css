@@ -1,0 +1,197 @@
+/* Inline comments, Confluence style: a tint plus a thick orange underline. Highlights are
+   ranges, not elements, hence the ::highlight() pseudo instead of a class. */
+::highlight(annot),
+::highlight(annot-fuzzy) {
+  background-color: rgba(255, 213, 0, 0.22);
+  text-decoration: underline 3px #f57c00;
+}
+::highlight(annot-fuzzy) {
+  text-decoration: underline 3px dashed #f57c00;
+}
+::highlight(annot-done) {
+  background-color: rgba(110, 118, 129, 0.15);
+  text-decoration: underline 3px #8b949e;
+}
+::highlight(annot-active) {
+  background-color: rgba(255, 196, 0, 0.45);
+}
+
+.annotate-toggle[aria-pressed="true"] {
+  opacity: 1;
+  border-color: #f57c00;
+}
+.annotate-toggle[aria-pressed="true"] .theme-toggle-icon {
+  color: #f57c00;
+}
+.annotate-toggle:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.annotations-counter {
+  font-size: 12px;
+  color: #656d76;
+  min-width: 3em;
+  text-align: center;
+}
+
+.annot-bubble,
+.annot-tip,
+.annot-box {
+  position: fixed;
+  z-index: 1100;
+  font-size: 13px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f2328;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.3);
+}
+.annot-bubble {
+  padding: 4px 10px;
+  cursor: pointer;
+  background: #f57c00;
+  border-color: #f57c00;
+  color: #ffffff;
+  font-weight: 600;
+}
+.annot-tip {
+  max-width: 320px;
+  padding: 6px 10px;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+.annot-box {
+  width: 320px;
+  /* The UA sheet gives popovers inset: 0 + auto margins; the box is placed by left/top. */
+  inset: auto;
+  margin: 0;
+  padding: 10px;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+}
+.annot-box:popover-open {
+  display: flex;
+}
+.annot-box-centered:popover-open {
+  inset: auto;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.annot-meta {
+  font-size: 11px;
+  color: #656d76;
+}
+.annot-reply:empty {
+  display: none;
+}
+.annot-reply {
+  padding: 6px 8px;
+  border-left: 3px solid #8b949e;
+  background: rgba(110, 118, 129, 0.1);
+  white-space: pre-wrap;
+}
+.annot-box textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 6px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: inherit;
+  color: inherit;
+  resize: vertical;
+}
+.annot-actions {
+  display: flex;
+  gap: 6px;
+}
+.annot-spacer {
+  flex: 1;
+}
+.annot-actions button {
+  font: inherit;
+  padding: 4px 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.annot-save {
+  background: #f57c00;
+  border-color: #f57c00;
+  color: #ffffff;
+}
+.annot-delete {
+  color: #cf222e;
+}
+
+@media (prefers-color-scheme: dark) {
+  .annotations-counter,
+  .annot-meta {
+    color: #8b949e;
+  }
+  .annot-tip,
+  .annot-box {
+    border-color: #484f58;
+    background: #161b22;
+    color: #e6edf3;
+    box-shadow: 0 8px 24px rgba(1, 4, 9, 0.8);
+  }
+  .annot-box textarea,
+  .annot-actions button {
+    border-color: #484f58;
+  }
+  ::highlight(annot),
+  ::highlight(annot-fuzzy) {
+    background-color: rgba(255, 213, 0, 0.18);
+  }
+}
+[data-theme="dark"] .annotations-counter,
+[data-theme="dark"] .annot-meta {
+  color: #8b949e;
+}
+[data-theme="dark"] .annot-tip,
+[data-theme="dark"] .annot-box {
+  border-color: #484f58;
+  background: #161b22;
+  color: #e6edf3;
+  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.8);
+}
+[data-theme="dark"] .annot-box textarea,
+[data-theme="dark"] .annot-actions button {
+  border-color: #484f58;
+}
+[data-theme="light"] .annotations-counter,
+[data-theme="light"] .annot-meta {
+  color: #656d76;
+}
+[data-theme="light"] .annot-tip,
+[data-theme="light"] .annot-box {
+  border-color: #d0d7de;
+  background: #ffffff;
+  color: #1f2328;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.3);
+}
+[data-theme="light"] .annot-box textarea,
+[data-theme="light"] .annot-actions button {
+  border-color: #d0d7de;
+}
+
+@media print {
+  .annot-bubble,
+  .annot-tip,
+  .annot-box {
+    display: none !important;
+  }
+  ::highlight(annot),
+  ::highlight(annot-fuzzy),
+  ::highlight(annot-done),
+  ::highlight(annot-active) {
+    background-color: transparent;
+    text-decoration: none;
+  }
+}
