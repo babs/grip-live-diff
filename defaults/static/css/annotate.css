@@ -129,6 +129,48 @@
   color: #cf222e;
 }
 
+/* The list at the foot of the document. */
+.annotations-list {
+  max-width: inherit;
+  margin: 24px auto 48px;
+  padding: 0 32px;
+  font-size: 14px;
+}
+.annotations-item {
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-left: 3px solid #f57c00;
+  border-radius: 0 6px 6px 0;
+  background: rgba(255, 213, 0, 0.08);
+  cursor: pointer;
+}
+.annotations-item-done {
+  border-left-color: #8b949e;
+  background: rgba(110, 118, 129, 0.08);
+}
+.annotations-item-active {
+  background: rgba(255, 196, 0, 0.25);
+}
+.annotations-item blockquote {
+  margin: 0 0 4px;
+  padding: 0;
+  border: 0;
+  font-style: italic;
+  color: #656d76;
+}
+.annotations-item p {
+  margin: 0;
+}
+.annotations-item small {
+  color: #9a6700;
+}
+.annotations-item-reply {
+  margin-top: 4px !important;
+  padding-left: 8px;
+  border-left: 2px solid #8b949e;
+  color: #656d76;
+}
+
 @media (prefers-color-scheme: dark) {
   .annotations-counter,
   .annot-meta {
@@ -149,6 +191,18 @@
   ::highlight(annot-fuzzy) {
     background-color: rgba(255, 213, 0, 0.18);
   }
+  .annotations-item blockquote,
+  .annotations-item-reply {
+    color: #8b949e;
+  }
+}
+[data-theme="dark"] .annotations-item blockquote,
+[data-theme="dark"] .annotations-item-reply {
+  color: #8b949e;
+}
+[data-theme="light"] .annotations-item blockquote,
+[data-theme="light"] .annotations-item-reply {
+  color: #656d76;
 }
 [data-theme="dark"] .annotations-counter,
 [data-theme="dark"] .annot-meta {
@@ -182,6 +236,10 @@
 }
 
 @media print {
+  .annotations-item {
+    cursor: auto;
+    page-break-inside: avoid;
+  }
   .annot-bubble,
   .annot-tip,
   .annot-box {

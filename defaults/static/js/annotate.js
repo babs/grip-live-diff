@@ -175,6 +175,50 @@
       var at = current ? ordered().indexOf(current) + 1 : 0;
       counter.textContent = entries.length ? (at ? at + "/" : "") + entries.length : "";
     }
+    drawList();
+  }
+
+  // The list at the foot of the document: the same entries in navigation order. Outside
+  // the article, so its text never becomes part of the model an annotation anchors in.
+  function drawList() {
+    var list = document.querySelector(".annotations-list");
+    if (!list) {
+      list = document.createElement("section");
+      list.className = "annotations-list";
+      article.parentElement.append(list);
+    }
+    list.hidden = !entries.length;
+    list.replaceChildren();
+    if (!entries.length) return;
+    var heading = document.createElement("h2");
+    heading.textContent = "Annotations";
+    list.append(heading);
+    ordered().forEach(function (entry, i) {
+      var a = entry.a, item = document.createElement("div");
+      item.className = "annotations-item" + (a.status === "done" ? " annotations-item-done" : "") + (current === entry ? " annotations-item-active" : "");
+      var quote = document.createElement("blockquote");
+      quote.textContent = a.exact ? (a.exact.length > 120 ? a.exact.slice(0, 117) + "…" : a.exact) : "whole document";
+      var note = !a.exact ? "" : !entry.ranges.length ? "text not found in the current version" : entry.fuzzy ? "re-anchored approximately" : "";
+      var comment = document.createElement("p");
+      comment.textContent = (i + 1) + ". " + a.comment;
+      item.append(quote, comment);
+      if (note) {
+        var small = document.createElement("small");
+        small.textContent = note;
+        item.append(small);
+      }
+      if (a.reply) {
+        var reply = document.createElement("p");
+        reply.className = "annotations-item-reply";
+        reply.textContent = a.reply;
+        item.append(reply);
+      }
+      item.addEventListener("click", function () {
+        current = entry;
+        step(0);
+      });
+      list.append(item);
+    });
   }
 
   function byId(id) {
@@ -198,6 +242,7 @@
     if (!list.length) return;
     var i = current ? list.indexOf(current) : delta > 0 ? -1 : list.length;
     var entry = list[(i + delta + list.length) % list.length];
+    if (!current && !delta) return;
     if (entry.ranges.length) {
       var rect = entry.ranges[0].getBoundingClientRect();
       if (rect.top < 80 || rect.bottom > window.innerHeight - 240) {
