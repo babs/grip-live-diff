@@ -3,3 +3,5 @@ bin
 dist
 grip-live-diff
 .claude/scratchpad/
+*.annotations.json5
+*.annotations.d/
