@@ -201,19 +201,17 @@
       var quote = document.createElement("blockquote");
       quote.textContent = a.exact ? (a.exact.length > 120 ? a.exact.slice(0, 117) + "…" : a.exact) : "whole document";
       var note = !a.exact ? "" : !entry.ranges.length ? "text not found in the current version" : entry.fuzzy ? "re-anchored approximately" : "";
-      var comment = document.createElement("p");
-      comment.textContent = (i + 1) + ". " + a.comment;
-      item.append(quote, comment);
+      var head = document.createElement("div");
+      head.className = "annotations-item-head";
+      head.append((i + 1) + ".", badgeOf(a));
+      var thread = document.createElement("div");
+      thread.className = "annot-thread";
+      renderThread(thread, a.thread);
+      item.append(head, quote, thread);
       if (note) {
         var small = document.createElement("small");
         small.textContent = note;
         item.append(small);
-      }
-      if (a.reply) {
-        var reply = document.createElement("p");
-        reply.className = "annotations-item-reply";
-        reply.textContent = a.reply;
-        item.append(reply);
       }
       item.addEventListener("click", function () {
         current = entry;
@@ -245,6 +243,58 @@
   function byId(id) {
     for (var i = 0; i < entries.length; i++) if (entries[i].a.id === id) return entries[i];
     return null;
+  }
+
+  // Index of the reader message the textarea edits: the last one, when nothing follows it.
+  // Once the agent has answered, the textarea composes a follow-up instead.
+  function editable(a) {
+    var last = a.thread[a.thread.length - 1];
+    return last && last.by === "reader" ? a.thread.length - 1 : -1;
+  }
+
+  function withReader(thread, text) {
+    var i = editable({ thread: thread }), out = thread.slice();
+    if (i >= 0) out[i] = Object.assign({}, out[i], { text: text });
+    else out.push({ by: "reader", text: text });
+    return out;
+  }
+
+  // done is the agent's word; reopened is derived: a reader message after the agent's.
+  function stateOf(a) {
+    if (a.status === "done") return "done";
+    var answered = false;
+    for (var i = 0; i < a.thread.length; i++) {
+      if (a.thread[i].by !== "reader") answered = true;
+      else if (answered) return "reopened";
+    }
+    return "open";
+  }
+
+  function badgeOf(a) {
+    var state = stateOf(a), badge = document.createElement("span");
+    badge.className = "annot-badge annot-badge-" + state;
+    badge.textContent = state;
+    return badge;
+  }
+
+  function whenOf(m) {
+    return m.at ? m.at.slice(0, 16).replace("T", " ") : "";
+  }
+
+  function whoOf(m) {
+    return m.by === "reader" ? "you" : m.by;
+  }
+
+  function renderThread(container, messages) {
+    container.replaceChildren();
+    messages.forEach(function (m) {
+      var p = document.createElement("p"), label = document.createElement("small"), text = document.createElement("span");
+      p.className = "annot-msg annot-msg-" + (m.by === "reader" ? "reader" : "agent");
+      label.textContent = whoOf(m) + (whenOf(m) ? " · " + whenOf(m) : "");
+      text.textContent = m.text;
+      p.append(label, text);
+      container.append(p);
+    });
   }
 
   // Navigation order: whole-document comments, then the marks in document order, then the
@@ -345,22 +395,34 @@
     bubble.style.top = quote.rect.bottom + 6 + "px";
   }
 
-  function openBox(entry, quote) {
-    current = entry || null;
-    var a = entry ? entry.a : null;
-    textarea.value = a ? a.comment : "";
-    var notes = [];
+  // The part of the box that mirrors the entry: meta line and the messages above the
+  // textarea (every one but the reader message being edited). Redrawn without touching
+  // the textarea when the sidecar changes underneath.
+  function fillBox(entry, quote) {
+    var a = entry ? entry.a : null, notes = [];
+    meta.replaceChildren();
     if (a) {
-      notes.push(a.created.slice(0, 16).replace("T", " ") + " · " + a.file_hash.slice(7, 14));
+      if (a.thread[0] && whenOf(a.thread[0])) notes.push(whenOf(a.thread[0]));
+      notes.push(a.file_hash.slice(7, 14));
       if (a.file_hash !== document.documentElement.getAttribute("data-file-hash")) notes.push("file changed since");
       if (a.exact && !entry.ranges.length) notes.push("text not found in the current version");
       if (entry.fuzzy) notes.push("re-anchored approximately");
       if (!a.exact) notes.push("whole document");
+      meta.append(badgeOf(a), " ");
     } else {
       notes.push(quote ? "new annotation" : "new comment on the whole document");
     }
-    meta.textContent = notes.join(" · ");
-    box.querySelector(".annot-reply").textContent = a && a.reply ? a.reply : "";
+    meta.append(notes.join(" · "));
+    var i = a ? editable(a) : -1;
+    renderThread(box.querySelector(".annot-thread"), a ? (i < 0 ? a.thread : a.thread.slice(0, i)) : []);
+    textarea.placeholder = a && i < 0 ? "Follow up" : "What should change here?";
+  }
+
+  function openBox(entry, quote) {
+    current = entry || null;
+    var a = entry ? entry.a : null, i = a ? editable(a) : -1;
+    fillBox(entry, quote);
+    textarea.value = i >= 0 ? a.thread[i].text : "";
     box.querySelector(".annot-delete").hidden = !a;
     bubble.hidden = true;
     var rect = entry && entry.ranges.length ? rectOf(entry) : quote ? quote.rect : null;
@@ -380,15 +442,15 @@
   }
 
   function submit() {
-    var comment = textarea.value.trim();
-    if (!comment) return;
+    var text = textarea.value.trim();
+    if (!text) return;
     var list = doc.annotations.slice();
     if (current) {
       list = list.map(function (a) {
-        return a.id === current.a.id ? Object.assign({}, a, { comment: comment }) : a;
+        return a.id === current.a.id ? Object.assign({}, a, { thread: withReader(a.thread, text) }) : a;
       });
     } else {
-      list.push({ exact: pending ? pending.exact : null, prefix: pending ? pending.prefix : null, suffix: pending ? pending.suffix : null, comment: comment });
+      list.push({ exact: pending ? pending.exact : null, prefix: pending ? pending.prefix : null, suffix: pending ? pending.suffix : null, thread: [{ by: "reader", text: text }] });
     }
     box.hidePopover();
     pending = null;
@@ -444,7 +506,7 @@
         tip.hidden = true;
         return;
       }
-      tip.textContent = e.a.comment + (e.a.reply ? "\n↳ " + e.a.reply : "");
+      tip.textContent = e.a.thread.map(function (m) { return whoOf(m) + ": " + m.text; }).join("\n");
       tip.hidden = false;
       tip.style.left = Math.min(ev.clientX + 12, window.innerWidth - tip.offsetWidth - 8) + "px";
       tip.style.top = ev.clientY + 16 + "px";
@@ -471,7 +533,7 @@
     box.setAttribute("popover", "manual");
     box.innerHTML =
       '<div class="annot-meta"></div>' +
-      '<div class="annot-reply"></div>' +
+      '<div class="annot-thread"></div>' +
       '<textarea rows="4" placeholder="What should change here?"></textarea>' +
       '<div class="annot-actions">' +
       '<button type="button" class="annot-delete">Delete</button>' +

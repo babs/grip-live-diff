@@ -84,14 +84,44 @@
   font-size: 11px;
   color: #656d76;
 }
-.annot-reply:empty {
+.annot-badge {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  color: #ffffff;
+  background: #f57c00;
+}
+.annot-badge-done {
+  background: #8b949e;
+}
+.annot-badge-reopened {
+  background: #cf222e;
+}
+/* The thread, oldest first; the box and the list share it. */
+.annot-thread:empty {
   display: none;
 }
-.annot-reply {
-  padding: 6px 8px;
-  border-left: 3px solid #8b949e;
-  background: rgba(110, 118, 129, 0.1);
+.annot-box .annot-thread {
+  max-height: 40vh;
+  overflow: auto;
+}
+.annot-thread .annot-msg {
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  border-left: 3px solid #f57c00;
   white-space: pre-wrap;
+}
+.annot-msg-agent {
+  border-left-color: #8b949e;
+  background: rgba(110, 118, 129, 0.1);
+}
+.annot-thread .annot-msg small {
+  display: block;
+  font-size: 11px;
+  color: #656d76;
 }
 .annot-box textarea {
   width: 100%;
@@ -164,11 +194,12 @@
 .annotations-item small {
   color: #9a6700;
 }
-.annotations-item-reply {
-  margin-top: 4px !important;
-  padding-left: 8px;
-  border-left: 2px solid #8b949e;
-  color: #656d76;
+.annotations-item-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+  font-weight: 600;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -192,16 +223,16 @@
     background-color: rgba(255, 213, 0, 0.18);
   }
   .annotations-item blockquote,
-  .annotations-item-reply {
+  .annot-thread .annot-msg small {
     color: #8b949e;
   }
 }
 [data-theme="dark"] .annotations-item blockquote,
-[data-theme="dark"] .annotations-item-reply {
+[data-theme="dark"] .annot-thread .annot-msg small {
   color: #8b949e;
 }
 [data-theme="light"] .annotations-item blockquote,
-[data-theme="light"] .annotations-item-reply {
+[data-theme="light"] .annot-thread .annot-msg small {
   color: #656d76;
 }
 [data-theme="dark"] .annotations-counter,

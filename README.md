@@ -132,13 +132,16 @@ browser, so `exact` is the truth. A comment with `exact: null` is about the whol
 document button, or `A`). A version 1 sidecar (`comment` / `reply`) is read and rewritten as
 version 2 on the next save.
 
-Marks are drawn whenever the file has annotations, capture on or off. Hovering one shows the comment
-and the agent's reply; clicking it opens the comment to edit or delete. The row under the toolbar walks
+Marks are drawn whenever the file has annotations, capture on or off. Hovering one shows the thread;
+clicking it opens the box: the messages in order, each labelled "you" or "agent", a badge saying
+open, done or reopened, and a textarea that edits your last message or, once the agent has answered,
+composes a follow-up. The row under the toolbar walks
 through them, `n` and `p` do the same: document-level comments first, then in document order, then
 the ones whose text is gone from the file. Each comment box says which version of the file it was
 written against and whether the file changed since; a passage that was reworded is re-anchored on its
 surroundings and drawn with a dashed underline, a passage that disappeared with its surroundings is
-kept in the file and reachable last. An entry answered by the agent turns grey and shows the reply.
+kept in the file and reachable last. An entry the agent marked done turns grey; a follow-up turns it
+back.
 
 The marks are also listed at the foot of the document, in the same order; hovering an item lights its
 mark, clicking it opens the comment. Saving writes the sidecar without reloading the page. Marks need the CSS Custom Highlight API (Chrome 105, Firefox 140, Safari 17.2); older
