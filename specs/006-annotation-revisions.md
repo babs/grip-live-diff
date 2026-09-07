@@ -1,6 +1,6 @@
 # 006 — Annotated revisions
 
-**Status**: approved
+**Status**: shipped
 **Requested by**: babs, from a thread on spec 005
 **Date**: 2026-09-07
 
@@ -41,8 +41,9 @@ where the lost passage shows struck through.
   relative to the served directory, not the base name.
 - `PUT /__annotations` with a path inside a `.annotations.d/` directory is refused with 400: a
   revision is not annotatable. `GET` on such a path renders it as any markdown file, read-only view.
-- Diff picker: one reference per kept revision after `HEAD`, labelled "annotated · HH:MM" (time of
-  the first entry with that hash), selected through `?diff=<hash>`; unknown hash falls back to
+- Diff picker: one reference per kept revision after `HEAD`, labelled "annotated · HH:MM" (the
+  copy's modification time, which is when the first entry on that version was saved), selected
+  through `?diff=<hash>`; unknown hash falls back to
   *since open* like `head` does without git. Kept in `localStorage` like the others; no key binding.
 - Box and list: the "text not found in the current version" note becomes a link to
   `?diff=<hash>` when a revision exists for the entry. In that diff the passage sits in a `del`,
@@ -61,24 +62,24 @@ where the lost passage shows struck through.
 
 ## Acceptance criteria
 
-- [ ] Given a file with no sidecar, saving a first annotation creates `<name>.annotations.d/<hash>.md`
+- [x] Given a file with no sidecar, saving a first annotation creates `<name>.annotations.d/<hash>.md`
       equal to the file, and the sidecar carries `revisions` with that hash and path.
-- [ ] Given two entries against the same version, one revision exists; given entries against two
+- [x] Given two entries against the same version, one revision exists; given entries against two
       versions (the file changed between two saves), two revisions exist.
-- [ ] Given the browser sends `revisions` with a forged path, the stored map is the one rebuilt from
+- [x] Given the browser sends `revisions` with a forged path, the stored map is the one rebuilt from
       disk.
-- [ ] Given the last entry referring to a revision is deleted, the revision file is gone; given the
+- [x] Given the last entry referring to a revision is deleted, the revision file is gone; given the
       last entry of the sidecar is deleted, the sidecar and the directory are gone.
-- [ ] Given a version 1 entry whose hash has no copy, `GET` returns it without a revision and no error.
-- [ ] Given a save that writes a revision while the page is open, the page refreshes its marks and does
+- [x] Given a version 1 entry whose hash has no copy, `GET` returns it without a revision and no error.
+- [x] Given a save that writes a revision while the page is open, the page refreshes its marks and does
       not reload.
-- [ ] `PUT /__annotations?path=/doc.annotations.d/abc.md` is refused with 400.
-- [ ] Given one kept revision, the picker shows a fourth reference "annotated · HH:MM"; clicking it
+- [x] `PUT /__annotations?path=/doc.annotations.d/abc.md` is refused with 400.
+- [x] Given one kept revision, the picker shows a fourth reference "annotated · HH:MM"; clicking it
       loads `?diff=<hash>` with the picker marking it active; the diff shows the changes since that
       version; `?diff=<unknown>` shows *since open*.
-- [ ] Given an orphaned entry with a revision, its note in the box and in the list links to
+- [x] Given an orphaned entry with a revision, its note in the box and in the list links to
       `?diff=<hash>`; in that diff the passage is struck through and the entry stays orphaned (no mark).
-- [ ] `go test ./...` green; revision write, reaping, map rebuild, refusal and classifier pinned by
+- [x] `go test ./...` green; revision write, reaping, map rebuild, refusal and classifier pinned by
       Go tests.
 
 ## Phases
@@ -118,7 +119,7 @@ Beside it, `README.annotations.d/3b2f0c1d9e8a.md`: the file as it was. Same post
 
 ## Open questions
 
-- [ ] None.
+- [x] None.
 
 ## Decisions
 
@@ -131,5 +132,8 @@ Beside it, `README.annotations.d/3b2f0c1d9e8a.md`: the file as it was. Same post
   forged path could point outside the directory.
 - Picker row per revision rather than one "annotated" reference — two versions with open entries is
   the normal case after a rewrite round; a single row would have to pick one.
+- Picker rows listed from the directory, labelled with the copy's mtime — a sidecar read at render
+  time would wait on an agent holding the lock (003 renders with a stat for the same reason); the
+  copy is written with the first entry, so the two times are the same.
 - No mark in `del` — anchoring skips deletions on purpose (003); the strike-through already says
   "this is what you commented on".
