@@ -47,13 +47,6 @@ func expectWakeup(t *testing.T, ch <-chan string, want string, what string) {
 	}
 }
 
-func classifySidecar(name string) string {
-	if strings.HasSuffix(name, sidecarSuffix) {
-		return msgAnnotations
-	}
-	return msgReload
-}
-
 // A sidecar write refreshes the annotations without reloading the page; anything else in
 // the directory, including a new subdirectory's files, reloads, and wins over a sidecar
 // write in the same burst.
@@ -62,7 +55,7 @@ func TestReloadTellsTheSidecarApart(t *testing.T) {
 
 	dir := t.TempDir()
 	r := newReloader()
-	if err := r.watch(dir, classifySidecar); err != nil {
+	if err := r.watch(dir, classifyChange); err != nil {
 		t.Fatal(err)
 	}
 	ch := wakeups(t, r)
@@ -86,6 +79,18 @@ func TestReloadTellsTheSidecarApart(t *testing.T) {
 		expectWakeup(t, ch, msgReload, "a burst of "+strings.Join(order, " then "))
 		expectWakeup(t, ch, "", "that same burst")
 	}
+
+	// A kept revision is written during a save: it refreshes, like the sidecar.
+	rev := filepath.Join(dir, "doc"+revisionsSuffix)
+	if err := os.Mkdir(rev, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	expectWakeup(t, ch, msgAnnotations, "the revisions directory")
+	time.Sleep(50 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(rev, "0123456789ab.md"), []byte("# old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expectWakeup(t, ch, msgAnnotations, "a revision write")
 
 	sub := filepath.Join(dir, "sub")
 	if err := os.Mkdir(sub, 0o755); err != nil {

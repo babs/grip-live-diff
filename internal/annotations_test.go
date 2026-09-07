@@ -435,3 +435,110 @@ func TestSidecarNameStaysOnOneLine(t *testing.T) {
 		t.Fatalf("expected the newline folded away from the header, got %q", got)
 	}
 }
+
+// Every version with entries against it is kept beside the sidecar, and only those.
+func TestAnnotationsKeepTheAnnotatedVersions(t *testing.T) {
+	t.Parallel()
+
+	v1 := "# Title\n\nalpha bravo\n"
+	f := newDiffFixture(t, v1)
+	revDir := filepath.Join(f.dir, "doc.annotations.d")
+	nameOf := func(content string) string { return revisionName(hashOf(content)) }
+
+	resp := f.put(`[{"exact":"alpha","thread":[{"by":"reader","text":"one"}]}]`)
+	first := resp.Annotations[0]
+	if got, err := os.ReadFile(filepath.Join(revDir, nameOf(v1))); err != nil || string(got) != v1 {
+		t.Fatalf("expected a copy of the annotated version, got %q (%v)", got, err)
+	}
+	if resp.Revisions[hashOf(v1)] != "doc.annotations.d/"+nameOf(v1) || len(resp.Revisions) != 1 {
+		t.Fatalf("expected revisions to map the hash to the copy, got %v", resp.Revisions)
+	}
+	if !strings.Contains(f.sidecar(), `"revisions"`) {
+		t.Fatalf("expected revisions in the sidecar, got %s", f.sidecar())
+	}
+
+	// A second entry on the same version: still one copy. A forged map is ignored.
+	entries, _ := json.Marshal(map[string]any{"revisions": map[string]string{"sha256:forged": "../../etc/passwd"}, "annotations": []annotation{first, {Exact: str("bravo"), Thread: []message{reader("two")}}}})
+	rec := f.annotations(http.MethodPut, string(entries))
+	var second annotationsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("PUT: %d %s", rec.Code, rec.Body)
+	}
+	if names, _ := os.ReadDir(revDir); len(names) != 1 || len(second.Revisions) != 1 {
+		t.Fatalf("expected one copy for one version, got %d files, %v", len(names), second.Revisions)
+	}
+
+	// The file moves on and gets a third entry: two versions kept.
+	v2 := "# Title\n\nalpha bravo\n\ncharlie\n"
+	f.write(v2)
+	entries, _ = json.Marshal(append(second.Annotations, annotation{Exact: str("charlie"), Thread: []message{reader("three")}}))
+	third := f.put(string(entries))
+	if names, _ := os.ReadDir(revDir); len(names) != 2 || len(third.Revisions) != 2 || third.Revisions[hashOf(v2)] != "doc.annotations.d/"+nameOf(v2) {
+		t.Fatalf("expected two versions kept, got %d files, %v", len(names), third.Revisions)
+	}
+
+	// The two entries on the first version go: its copy goes with them.
+	entries, _ = json.Marshal(third.Annotations[2:])
+	fourth := f.put(string(entries))
+	if _, err := os.Stat(filepath.Join(revDir, nameOf(v1))); !os.IsNotExist(err) {
+		t.Fatalf("expected the unreferenced copy removed, got %v", err)
+	}
+	if len(fourth.Revisions) != 1 || fourth.Revisions[hashOf(v1)] != "" {
+		t.Fatalf("expected only the second version left, got %v", fourth.Revisions)
+	}
+
+	// Last entry deleted: sidecar and directory gone.
+	f.put(`[]`)
+	for _, p := range []string{filepath.Join(f.dir, sidecarName), revDir} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("expected %s removed, got %v", p, err)
+		}
+	}
+}
+
+func TestRevisionName(t *testing.T) {
+	t.Parallel()
+
+	for hash, want := range map[string]string{
+		"sha256:0123456789abcdef": "0123456789ab.md",
+		"sha256:../../etc/passwd": "",
+		"sha256:short":            "",
+		"":                        "",
+		"0123456789abcdef":        "0123456789ab.md",
+	} {
+		if got := revisionName(hash); got != want {
+			t.Errorf("%q: expected %q, got %q", hash, want, got)
+		}
+	}
+}
+
+// A copy is not a document: it cannot be annotated, and a hash the server cannot back
+// (a version 1 entry whose version is gone) simply has no copy.
+func TestAnnotationsRevisionsEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	f := newDiffFixture(t, "# Title\n\nalpha\n")
+	rec := httptest.NewRecorder()
+	f.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/__annotations?path=/doc.annotations.d/abcdef012345.md", strings.NewReader(`{"annotations":[]}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected PUT on a revision to be refused with 400, got %d", rec.Code)
+	}
+
+	v1 := `{"version": 1, "file": "doc.md", "annotations": [{"id": "old00000", "exact": "gone", "prefix": "", "suffix": "", "lines": null,
+	  "comment": "lost version", "created": "2026-09-07T12:00:00+02:00", "updated": null, "file_hash": "sha256:00000000000000000000000000000000"}]}`
+	if err := os.WriteFile(filepath.Join(f.dir, sidecarName), []byte(v1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec = f.annotations(http.MethodGet, "")
+	var got annotationsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK || len(got.Revisions) != 0 {
+		t.Fatalf("expected the entry without a revision, got %d %s", rec.Code, rec.Body)
+	}
+	entries, _ := json.Marshal(got.Annotations)
+	if saved := f.put(string(entries)); len(saved.Revisions) != 0 || len(saved.Annotations) != 1 {
+		t.Fatalf("expected no copy for a version the server never saw, got %+v", saved)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "doc.annotations.d")); !os.IsNotExist(err) {
+		t.Fatalf("expected no revisions directory, got %v", err)
+	}
+}

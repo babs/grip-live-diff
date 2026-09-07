@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -177,14 +178,7 @@ func (s *Server) Serve(file string) error {
 	}
 
 	if s.enableReload {
-		// The sidecar is written by the page itself and by the agent: either way the page
-		// refetches the marks instead of flashing.
-		err := s.reload.watch(directory, func(name string) string {
-			if strings.HasSuffix(name, sidecarSuffix) {
-				return msgAnnotations
-			}
-			return msgReload
-		})
+		err := s.reload.watch(directory, classifyChange)
 		if err != nil {
 			return fmt.Errorf("watch %s: %w", directory, err)
 		}
@@ -193,6 +187,17 @@ func (s *Server) Serve(file string) error {
 		fmt.Printf("🔄 Auto-reload disabled. Use F5 to manually refresh.\n")
 	}
 	return http.ListenAndServe(fmt.Sprintf(":%d", s.port), handler)
+}
+
+// classifyChange sorts a changed file, given relative to the served directory: the sidecar
+// and the kept revisions are written by the page itself and by the agent, either way the
+// page refetches its marks instead of flashing; anything else reloads it.
+func classifyChange(rel string) string {
+	rel = filepath.ToSlash(rel)
+	if strings.HasSuffix(rel, sidecarSuffix) || strings.HasSuffix(rel, revisionsSuffix) || strings.Contains(rel, revisionsSuffix+"/") {
+		return msgAnnotations
+	}
+	return msgReload
 }
 
 func (s *Server) newHandler(dir http.Dir) http.Handler {

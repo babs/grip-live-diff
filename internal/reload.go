@@ -112,7 +112,8 @@ func (r *reloader) serveWS(w http.ResponseWriter, req *http.Request) {
 }
 
 // watch follows dir and every directory under it, present or created later, and
-// broadcasts on any change the message classify gives its file, none to ignore it.
+// broadcasts on any change the message classify gives its file (path relative to dir),
+// none to ignore it.
 func (r *reloader) watch(dir string, classify func(name string) string) error {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -152,7 +153,11 @@ func (r *reloader) watch(dir string, classify func(name string) string) error {
 						w.Add(e.Name)
 					}
 				}
-				msg := classify(filepath.Base(e.Name))
+				rel, err := filepath.Rel(dir, e.Name)
+				if err != nil {
+					rel = e.Name
+				}
+				msg := classify(rel)
 				if msg == "" || !e.Has(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) {
 					continue
 				}

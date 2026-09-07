@@ -23,8 +23,10 @@ import (
 )
 
 const (
-	sidecarSuffix  = ".annotations.json5"
-	sidecarVersion = 2
+	sidecarSuffix = ".annotations.json5"
+	// Beside the sidecar, one copy of the file per version that has annotations against it.
+	revisionsSuffix = ".annotations.d"
+	sidecarVersion  = 2
 	// A sidecar is a few dozen comments; anything bigger is not a browser talking.
 	maxSidecarBytes = 1 << 20
 
@@ -45,7 +47,9 @@ const sidecarHeader = `// grip-live-diff annotations for %s. JSON5: comments and
 //   - never edit or remove reader messages, id or file_hash;
 //   - if you rewrite an annotated passage, put the new wording in exact so the mark follows it;
 //   - exact / prefix / suffix quote the rendered text; lines is a hint into the markdown source,
-//     recomputed on every save from the preview, so trust exact first; exact: null = whole document.
+//     recomputed on every save from the preview, so trust exact first; exact: null = whole document;
+//   - revisions maps a file_hash to a copy of the file as it was when those entries were written;
+//     read one only for an entry whose exact is gone from the file. Managed by the preview.
 //
 // Entry: { id, exact, prefix, suffix, lines: [start, end] | null, file_hash, status?: "done",
 //          thread: [{ by: "reader" | "agent", at: <RFC 3339> | null, text }] }
@@ -99,9 +103,12 @@ func upgrade(a annotation) annotation {
 }
 
 type sidecar struct {
-	Version     int          `json:"version"`
-	File        string       `json:"file"`
-	Annotations []annotation `json:"annotations"`
+	Version int    `json:"version"`
+	File    string `json:"file"`
+	// file_hash -> path of the copy, relative to the sidecar's directory. Rebuilt from
+	// disk at every save; what the browser or the agent put there is ignored.
+	Revisions   map[string]string `json:"revisions,omitempty"`
+	Annotations []annotation      `json:"annotations"`
 }
 
 // annotationsResponse adds the hash of the markdown the browser is looking at, so it can
@@ -132,6 +139,82 @@ func sidecarPath(dir http.Dir, target string) string {
 // file type, so neither a redirect nor a sidecar can ever point elsewhere.
 func isMarkdownTarget(target string, regex *regexp.Regexp) bool {
 	return strings.HasPrefix(target, "/") && !strings.HasPrefix(target, "//") && regex.MatchString(target)
+}
+
+// isRevisionTarget tells a kept copy of an annotated version from a document: a copy is
+// read-only, it cannot carry annotations of its own.
+func isRevisionTarget(target string) bool {
+	return strings.Contains(target, revisionsSuffix+"/")
+}
+
+// revisionsDir is the directory holding the copies of target's annotated versions.
+func revisionsDir(dir http.Dir, target string) string {
+	return strings.TrimSuffix(sidecarPath(dir, target), sidecarSuffix) + revisionsSuffix
+}
+
+// revisionName is the file name of the copy for hash: twelve hex characters are plenty
+// for the handful of versions one file carries.
+func revisionName(hash string) string {
+	hex := strings.TrimPrefix(hash, "sha256:")
+	if len(hex) < 12 || !revisionFile.MatchString(hex[:12]+".md") {
+		return ""
+	}
+	return hex[:12] + ".md"
+}
+
+// The only shape a copy's name takes; anything else in the directory is not ours.
+var revisionFile = regexp.MustCompile(`^[0-9a-f]{12}\.md$`)
+
+// syncRevisions makes the copies on disk match the entries: the current content is kept
+// when an entry refers to it and no copy exists yet, a copy no entry refers to is removed,
+// the directory goes when empty. Returns the map for the sidecar. Runs under the sidecar
+// lock. A hash with no copy and not the current content stays without one: the server
+// has no other version in hand.
+func syncRevisions(revDir string, entries []annotation, source []byte, hash string) (map[string]string, error) {
+	wanted := make(map[string]string, len(entries))
+	for _, a := range entries {
+		if name := revisionName(a.FileHash); name != "" {
+			wanted[name] = a.FileHash
+		}
+	}
+	kept := map[string]string{}
+	rel := filepath.Base(revDir)
+
+	if names, err := os.ReadDir(revDir); err == nil {
+		for _, e := range names {
+			if !revisionFile.MatchString(e.Name()) {
+				continue
+			}
+			if h, ok := wanted[e.Name()]; ok {
+				kept[h] = rel + "/" + e.Name()
+				continue
+			}
+			if err := os.Remove(filepath.Join(revDir, e.Name())); err != nil {
+				return nil, err
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+
+	if name := revisionName(hash); name != "" && wanted[name] == hash && kept[hash] == "" {
+		if err := os.MkdirAll(revDir, 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(revDir, name), source, 0o644); err != nil { //nolint:gosec // a copy of a served file
+			return nil, err
+		}
+		kept[hash] = rel + "/" + name
+	}
+
+	if len(kept) == 0 {
+		// Only ever ours to remove when it holds nothing else: Remove refuses a non-empty dir.
+		if err := os.Remove(revDir); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Println("revisions:", err)
+		}
+		return nil, nil
+	}
+	return kept, nil
 }
 
 // sameOrigin refuses a page from another origin: the server listens on every interface.
@@ -218,6 +301,10 @@ func writeSidecar(dir http.Dir, target string, source []byte, incoming []annotat
 		return sidecar{}, err
 	}
 	stored.Annotations = mergeAnnotations(stored.Annotations, incoming, source)
+	stored.Revisions, err = syncRevisions(revisionsDir(dir, target), stored.Annotations, source, fileHash(source))
+	if err != nil {
+		return sidecar{}, err
+	}
 
 	if len(stored.Annotations) == 0 {
 		// Still under the lock, so nobody reads a sidecar that is about to vanish.
@@ -374,7 +461,7 @@ func (s *Server) handleAnnotations(w http.ResponseWriter, r *http.Request, dir h
 		return
 	}
 	target := r.URL.Query().Get("path")
-	if !isMarkdownTarget(target, regex) {
+	if !isMarkdownTarget(target, regex) || (r.Method == http.MethodPut && isRevisionTarget(target)) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
