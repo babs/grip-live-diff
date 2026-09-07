@@ -1,6 +1,6 @@
 # 005 — Annotation threads
 
-**Status**: approved
+**Status**: shipped
 **Requested by**: babs, after a first real review loop (four answered annotations on a draft spec)
 **Date**: 2026-09-07
 
@@ -68,42 +68,42 @@ threads refresh in place, without reloading the page and without losing what the
 
 ## Acceptance criteria
 
-- [ ] Given a version 1 sidecar with `comment`, `created`, `reply` and `status: done`, `GET` returns
+- [x] Given a version 1 sidecar with `comment`, `created`, `reply` and `status: done`, `GET` returns
       the entry with `thread: [{by: "reader", at: <created>, text: <comment>}, {by: "agent", at:
       null, text: <reply>}]`, `status: done`, and no `comment` / `reply` / `updated` / `created`
       keys; the next `PUT` writes `"version": 2` and the new header.
-- [ ] Given a new annotation is saved from the browser, the entry has `thread` with one reader
+- [x] Given a new annotation is saved from the browser, the entry has `thread` with one reader
       message dated now, `id`, `file_hash`, `lines`, and no `status`.
-- [ ] Given an entry `[reader, agent]` with `status: done` on disk and the browser sends
+- [x] Given an entry `[reader, agent]` with `status: done` on disk and the browser sends
       `[reader, reader']` (page loaded before the agent wrote), the result is `[reader, agent,
       reader']` with `status` absent, `reader'.at` set by the server.
-- [ ] Given an entry `[reader]` on disk and the browser sends `[reader-edited]`, the text is replaced
+- [x] Given an entry `[reader]` on disk and the browser sends `[reader-edited]`, the text is replaced
       and `at` is unchanged.
-- [ ] Given the browser sends an agent message with altered text or one that is not on disk, the
+- [x] Given the browser sends an agent message with altered text or one that is not on disk, the
       stored agent messages are kept as they were and the extra one is dropped.
-- [ ] Given `PUT` on an entry with `status: done` and no new reader message, `status` stays done.
-- [ ] Given the box is open on an answered entry, the thread reads oldest first: "you" then "agent",
+- [x] Given `PUT` on an entry with `status: done` and no new reader message, `status` stays done.
+- [x] Given the box is open on an answered entry, the thread reads oldest first: "you" then "agent",
       each with its time (none when `at` is null); the badge reads "done"; the textarea is empty
       with the placeholder "Follow up".
-- [ ] Given "Follow up" text is saved, the box shows three messages, the badge reads "reopened", the
+- [x] Given "Follow up" text is saved, the box shows three messages, the badge reads "reopened", the
       mark is no longer grey, the sidecar has the third message and no `status`.
-- [ ] Given the box is open on an entry whose last message is the reader's, the textarea holds that
+- [x] Given the box is open on an entry whose last message is the reader's, the textarea holds that
       message and saving edits it in place; the thread above shows only the earlier messages.
-- [ ] Given the list at the foot of the document, each item shows the badge and the thread with
+- [x] Given the list at the foot of the document, each item shows the badge and the thread with
       labels, oldest first; the tooltip shows the same.
-- [ ] Given the agent rewrites the sidecar (adds a message, sets done) while the page is open, within
+- [x] Given the agent rewrites the sidecar (adds a message, sets done) while the page is open, within
       one second the mark turns grey, the list shows the message, and the page did not reload
       (a marker set on `window` before the write is still there, and the scroll position is kept).
-- [ ] Given the box is open with "not yet saved" typed in the textarea when the agent writes the
+- [x] Given the box is open with "not yet saved" typed in the textarea when the agent writes the
       sidecar, the box stays open on the same entry, the thread shows the agent's new message, and
       the textarea still reads "not yet saved".
-- [ ] Given the agent deletes the entry the box is open on, the box closes and the mark is gone.
-- [ ] Given the markdown file is written, the page reloads as before; given the markdown and the
+- [x] Given the agent deletes the entry the box is open on, the box closes and the mark is gone.
+- [x] Given the markdown file is written, the page reloads as before; given the markdown and the
       sidecar are written within the same 100 ms burst, the page reloads once.
-- [ ] Given a save from the page, the resulting `annotations` broadcast does not open the box, move
+- [x] Given a save from the page, the resulting `annotations` broadcast does not open the box, move
       the scroll, or change what is drawn.
-- [ ] Given the server restarts, the page reconnects and reloads once, as today.
-- [ ] `go test ./...` green; the merge rules (rank matching, reopen, agent messages from disk, `at`
+- [x] Given the server restarts, the page reconnects and reloads once, as today.
+- [x] `go test ./...` green; the merge rules (rank matching, reopen, agent messages from disk, `at`
       immutability, v1 conversion, header), the broadcast kind selection and the looping websocket
       are pinned by Go tests.
 
