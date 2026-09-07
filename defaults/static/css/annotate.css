@@ -56,13 +56,18 @@
   font-weight: 600;
 }
 .annot-tip {
-  max-width: 320px;
-  padding: 6px 10px;
-  white-space: pre-wrap;
+  width: max-content;
+  max-width: min(880px, 70vw);
+  max-height: 70vh;
+  overflow: hidden;
+  padding: 8px 10px 2px;
   pointer-events: none;
 }
+.annot-tip-cut {
+  mask-image: linear-gradient(#000 80%, transparent);
+}
 .annot-box {
-  width: 320px;
+  width: min(880px, 70vw);
   /* The UA sheet gives popovers inset: 0 + auto margins; the box is placed by left/top. */
   inset: auto;
   margin: 0;

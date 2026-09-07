@@ -9,7 +9,7 @@
   var SKIP = "del.gg-del, .mermaid, .math, mjx-container, script, style, button, [hidden]";
 
   var article, model, entries = [], doc = { annotations: [] }, pending = null, current = null, hovered = null;
-  var bubble, tip, box, textarea, meta, hitFrame;
+  var bubble, tip, tipThread, box, textarea, meta, hitFrame;
 
   var supported = "highlights" in CSS && typeof Highlight === "function";
 
@@ -437,11 +437,13 @@
     textarea.value = i >= 0 ? a.thread[i].text : "";
     box.querySelector(".annot-delete").hidden = !a;
     bubble.hidden = true;
+    tip.hidden = true;
     var rect = entry && entry.ranges.length ? rectOf(entry) : quote ? quote.rect : null;
-    box.style.left = rect ? Math.min(rect.left, window.innerWidth - 340) + "px" : "";
-    box.style.top = rect ? Math.min(rect.bottom + 8, window.innerHeight - 200) + "px" : "";
     box.classList.toggle("annot-box-centered", !rect);
     box.showPopover();
+    // Placed once shown: a hidden popover has no size to clamp against.
+    box.style.left = rect ? Math.max(8, Math.min(rect.left, window.innerWidth - box.offsetWidth - 8)) + "px" : "";
+    box.style.top = rect ? Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - box.offsetHeight - 8)) + "px" : "";
     draw();
     textarea.focus();
   }
@@ -514,14 +516,19 @@
     hitFrame = requestAnimationFrame(function () {
       hitFrame = 0;
       var e = entryAt(ev.clientX, ev.clientY);
-      if (!e || box.matches(":popover-open")) {
+      if (!e || !e.a.thread.length || box.matches(":popover-open")) {
         tip.hidden = true;
         return;
       }
-      tip.textContent = e.a.thread.map(function (m) { return whoOf(m) + ": " + m.text; }).join("\n");
+      renderThread(tipThread, e.a.thread);
       tip.hidden = false;
+      // A thread taller than the cap is faded out at the bottom; the click opens it whole.
+      tip.classList.toggle("annot-tip-cut", tipThread.scrollHeight > tip.clientHeight);
       tip.style.left = Math.min(ev.clientX + 12, window.innerWidth - tip.offsetWidth - 8) + "px";
-      tip.style.top = ev.clientY + 16 + "px";
+      // Below the pointer, or above it when the thread would run off the bottom.
+      var top = ev.clientY + 16;
+      if (top + tip.offsetHeight > window.innerHeight - 8) top = Math.max(8, ev.clientY - 16 - tip.offsetHeight);
+      tip.style.top = top + "px";
     });
   }
 
@@ -539,6 +546,9 @@
     tip = document.createElement("div");
     tip.className = "annot-tip";
     tip.hidden = true;
+    tipThread = document.createElement("div");
+    tipThread.className = "annot-thread";
+    tip.append(tipThread);
 
     box = document.createElement("div");
     box.className = "annot-box";
