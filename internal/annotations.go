@@ -24,26 +24,40 @@ import (
 
 const (
 	sidecarSuffix  = ".annotations.json5"
-	sidecarVersion = 1
+	sidecarVersion = 2
 	// A sidecar is a few dozen comments; anything bigger is not a browser talking.
 	maxSidecarBytes = 1 << 20
+
+	byReader = "reader"
+	byAgent  = "agent"
 )
 
 // sidecarHeader tells the agent, in the file itself, how to take part; rewritten on
 // every save, so it survives a tool that drops comments.
 const sidecarHeader = `// grip-live-diff annotations for %s. JSON5: comments and trailing commas are fine.
 //
-// An entry is a reader's request until it is answered or removed. To take part:
+// An entry is a thread between the reader and you, the agent. It is a request while its last
+// message is the reader's, until you answer it or delete the entry. To take part:
 //   - take an exclusive flock on this file while you edit it; the preview does the same;
-//   - once a request is handled, either set status: "done" with a short reply, or delete the entry;
+//   - answer by appending { by: "agent", at: <RFC 3339>, text } to thread; once the request is
+//     handled, set status: "done" as well, or delete the entry;
+//   - a reader message after yours reopens the entry (status is dropped): handle it again;
+//   - never edit or remove reader messages, id or file_hash;
 //   - if you rewrite an annotated passage, put the new wording in exact so the mark follows it;
 //   - exact / prefix / suffix quote the rendered text; lines is a hint into the markdown source,
-//     recomputed on every save from the preview, so trust exact first; exact: null = whole document;
-//   - id, created, file_hash and comment belong to the reader: never change them.
+//     recomputed on every save from the preview, so trust exact first; exact: null = whole document.
 //
-// Entry: { id, exact, prefix, suffix, lines: [start, end] | null, comment, created, updated,
-//          file_hash, status?: "done", reply?: string }
+// Entry: { id, exact, prefix, suffix, lines: [start, end] | null, file_hash, status?: "done",
+//          thread: [{ by: "reader" | "agent", at: <RFC 3339> | null, text }] }
 `
+
+// message is one turn of an entry's thread. At is nil on an agent message that did not
+// date itself: the server cannot know when the agent wrote.
+type message struct {
+	By   string  `json:"by"`
+	At   *string `json:"at"`
+	Text string  `json:"text"`
+}
 
 // annotation is one entry of the sidecar. Exact, Prefix and Suffix follow the W3C
 // TextQuoteSelector; Lines is a hint into the markdown source, recomputed at every write.
@@ -53,13 +67,35 @@ type annotation struct {
 	Prefix   *string `json:"prefix"`
 	Suffix   *string `json:"suffix"`
 	Lines    *[2]int `json:"lines"`
-	Comment  string  `json:"comment"`
-	Created  string  `json:"created"`
-	Updated  *string `json:"updated"`
 	FileHash string  `json:"file_hash"`
 	// Written by the agent, never by the browser.
-	Status string `json:"status,omitempty"`
-	Reply  string `json:"reply,omitempty"`
+	Status string    `json:"status,omitempty"`
+	Thread []message `json:"thread"`
+	// Version 1 fields, read for conversion only; upgrade clears them so they are never
+	// written back.
+	Comment string `json:"comment,omitempty"`
+	Created string `json:"created,omitempty"`
+	Reply   string `json:"reply,omitempty"`
+}
+
+// upgrade turns a version 1 entry (comment / created / reply) into a thread; a version 2
+// entry is returned as is, with a non-nil thread so it encodes as [].
+func upgrade(a annotation) annotation {
+	if a.Thread == nil {
+		a.Thread = []message{}
+		if a.Comment != "" || a.Reply != "" || a.Created != "" {
+			var at *string
+			if created := a.Created; created != "" {
+				at = &created
+			}
+			a.Thread = append(a.Thread, message{By: byReader, At: at, Text: a.Comment})
+			if a.Reply != "" {
+				a.Thread = append(a.Thread, message{By: byAgent, Text: a.Reply})
+			}
+		}
+	}
+	a.Comment, a.Created, a.Reply = "", "", ""
+	return a
 }
 
 type sidecar struct {
@@ -134,6 +170,9 @@ func decodeSidecar(f *os.File, target string) (sidecar, error) {
 	if sc.Annotations == nil {
 		sc.Annotations = []annotation{}
 	}
+	for i, a := range sc.Annotations {
+		sc.Annotations[i] = upgrade(a)
+	}
 	return sc, nil
 }
 
@@ -203,8 +242,9 @@ func writeSidecar(dir http.Dir, target string, source []byte, incoming []annotat
 }
 
 // mergeAnnotations applies the browser's view of the list to what is on disk. The browser
-// owns the comment and the list membership; the agent owns everything else on an existing
-// entry (status, reply, and the quote it re-anchors), so those always come from disk.
+// owns the reader messages and the list membership; the agent owns everything else on an
+// existing entry (status, its messages, and the quote it re-anchors), so those always come
+// from disk.
 func mergeAnnotations(stored, incoming []annotation, source []byte) []annotation {
 	known := make(map[string]annotation, len(stored))
 	for _, a := range stored {
@@ -216,21 +256,26 @@ func mergeAnnotations(stored, incoming []annotation, source []byte) []annotation
 	out := make([]annotation, 0, len(incoming))
 	seen := make(map[string]bool, len(incoming))
 	for _, in := range incoming {
+		in = upgrade(in)
 		var a annotation
 		switch old, ok := known[in.ID]; {
 		case in.ID != "" && seen[in.ID]:
 			continue
 		case in.ID == "":
 			a = in
-			a.ID, a.Created, a.FileHash = newAnnotationID(), now, hash
-			a.Updated, a.Status, a.Reply = nil, "", ""
+			a.ID, a.FileHash, a.Status = newAnnotationID(), hash, ""
+			// An entry with nothing said is not a request.
+			if a.Thread, _ = mergeThread(nil, in.Thread, now); len(a.Thread) == 0 {
+				continue
+			}
 		case !ok:
 			// Gone from disk since the page loaded: the agent handled it, do not bring it back.
 			continue
 		default:
 			a = old
-			if in.Comment != old.Comment {
-				a.Comment, a.Updated = in.Comment, &now
+			var reopened bool
+			if a.Thread, reopened = mergeThread(old.Thread, in.Thread, now); reopened {
+				a.Status = ""
 			}
 		}
 		a.Lines = sourceLines(source, a.Exact)
@@ -238,6 +283,33 @@ func mergeAnnotations(stored, incoming []annotation, source []byte) []annotation
 		out = append(out, a)
 	}
 	return out
+}
+
+// mergeThread applies the browser's reader messages to the stored thread. Reader messages
+// are matched by rank: the browser may have loaded the page before the agent answered, so
+// positions in the two lists do not line up, but the reader's own sequence only grows.
+// Edits keep their date; new messages are dated now and appended, which reopens the entry.
+func mergeThread(stored, incoming []message, now string) ([]message, bool) {
+	var readers []message
+	for _, m := range incoming {
+		if m.By == byReader {
+			readers = append(readers, m)
+		}
+	}
+	out := make([]message, 0, len(stored)+len(readers))
+	rank := 0
+	for _, m := range stored {
+		if m.By == byReader && rank < len(readers) {
+			m.Text = readers[rank].Text
+			rank++
+		}
+		out = append(out, m)
+	}
+	for _, m := range readers[rank:] {
+		at := now
+		out = append(out, message{By: byReader, At: &at, Text: m.Text})
+	}
+	return out, rank < len(readers)
 }
 
 // sourceLines locates exact in the markdown source and returns its 1-based line span.
