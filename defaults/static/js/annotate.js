@@ -209,8 +209,9 @@
       renderThread(thread, a.thread);
       item.append(head, quote, thread);
       if (note) {
-        var small = document.createElement("small");
+        var small = document.createElement("small"), link = !entry.ranges.length && revisionLink(a);
         small.textContent = note;
+        if (link) small.append(" · ", link);
         item.append(small);
       }
       item.addEventListener("click", function () {
@@ -283,6 +284,21 @@
 
   function whoOf(m) {
     return m.by === "reader" ? "you" : m.by;
+  }
+
+  // A link to the diff against the version the entry was written on, when the server kept
+  // a copy of it; the lost passage shows there struck through.
+  function revisionLink(a) {
+    var kept = doc.revisions && doc.revisions[a.file_hash];
+    if (!kept) return null;
+    var link = document.createElement("a");
+    link.className = "annot-revision";
+    link.href = location.pathname + "?diff=" + kept.slice(kept.lastIndexOf("/") + 1).replace(/\.md$/, "");
+    link.textContent = "in the annotated version";
+    link.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+    });
+    return link;
   }
 
   function renderThread(container, messages) {
@@ -425,6 +441,8 @@
       notes.push(quote ? "new annotation" : "new comment on the whole document");
     }
     meta.append(notes.join(" · "));
+    var link = a && a.exact && !entry.ranges.length && revisionLink(a);
+    if (link) meta.append(" · ", link);
     var i = a ? editable(a) : -1;
     renderThread(box.querySelector(".annot-thread"), a ? (i < 0 ? a.thread : a.thread.slice(0, i)) : []);
     textarea.placeholder = a && i < 0 ? "Follow up" : "What should change here?";

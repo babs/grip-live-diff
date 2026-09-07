@@ -5,7 +5,9 @@
   function stored() {
     try {
       var ref = localStorage.getItem(STORAGE_KEY);
-      if (REFS.indexOf(ref) !== -1) return ref;
+      // A kept annotated version is named by twelve hex characters; the server falls back
+      // to "open" when it has been reaped since.
+      if (REFS.indexOf(ref) !== -1 || /^[0-9a-f]{12}$/.test(ref)) return ref;
     } catch (e) {}
     return "open";
   }

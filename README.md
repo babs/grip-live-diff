@@ -132,6 +132,13 @@ browser, so `exact` is the truth. A comment with `exact: null` is about the whol
 document button, or `A`). A version 1 sidecar (`comment` / `reply`) is read and rewritten as
 version 2 on the next save.
 
+Every version of the file that has annotations against it is kept beside the sidecar, in
+`<name>.annotations.d/<hash>.md`, written with the first comment on that version and removed with
+the last entry that refers to it; the sidecar lists them under `revisions`, keyed by `file_hash`.
+After a wholesale rewrite, an entry whose text is gone links to the diff against that version
+(`?diff=<hash>`, also offered in the reference picker as "annotated · HH:MM"), where the lost
+passage shows struck through. A kept copy cannot be annotated itself.
+
 Marks are drawn whenever the file has annotations, capture on or off. Hovering one shows the thread;
 clicking it opens the box: the messages in order, each labelled "you" or "agent", a badge saying
 open, done or reopened, and a textarea that edits your last message or, once the agent has answered,
