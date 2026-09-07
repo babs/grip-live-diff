@@ -177,9 +177,14 @@ func (s *Server) Serve(file string) error {
 	}
 
 	if s.enableReload {
-		// The sidecar is written by the page itself: reloading on it would flash the page
-		// on every comment saved.
-		err := s.reload.watch(directory, func(name string) bool { return strings.HasSuffix(name, sidecarSuffix) })
+		// The sidecar is written by the page itself and by the agent: either way the page
+		// refetches the marks instead of flashing.
+		err := s.reload.watch(directory, func(name string) string {
+			if strings.HasSuffix(name, sidecarSuffix) {
+				return msgAnnotations
+			}
+			return msgReload
+		})
 		if err != nil {
 			return fmt.Errorf("watch %s: %w", directory, err)
 		}

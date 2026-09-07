@@ -12,16 +12,20 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// wakeups reports every broadcast of r on a channel, for as long as the test runs.
-func wakeups(t *testing.T, r *reloader) <-chan struct{} {
+// wakeups reports the message of every settled burst of r on a channel, for as long as
+// the test runs.
+func wakeups(t *testing.T, r *reloader) <-chan string {
 	t.Helper()
-	ch := make(chan struct{}, 8)
+	ch := make(chan string, 8)
 	go func() {
+		r.cond.L.Lock()
+		seen := r.seq
 		for {
-			r.cond.L.Lock()
-			r.cond.Wait()
-			r.cond.L.Unlock()
-			ch <- struct{}{}
+			for r.seq == seen {
+				r.cond.Wait()
+			}
+			seen = r.seq
+			ch <- r.last
 		}
 	}()
 	// The goroutine must be waiting before the first write, or the broadcast is missed.
@@ -29,28 +33,36 @@ func wakeups(t *testing.T, r *reloader) <-chan struct{} {
 	return ch
 }
 
-func expectWakeup(t *testing.T, ch <-chan struct{}, want bool, what string) {
+func expectWakeup(t *testing.T, ch <-chan string, want string, what string) {
 	t.Helper()
 	select {
-	case <-ch:
-		if !want {
-			t.Fatalf("expected no reload after %s", what)
+	case got := <-ch:
+		if got != want {
+			t.Fatalf("expected %q after %s, got %q", want, what, got)
 		}
 	case <-time.After(400 * time.Millisecond):
-		if want {
-			t.Fatalf("expected a reload after %s", what)
+		if want != "" {
+			t.Fatalf("expected %q after %s", want, what)
 		}
 	}
 }
 
-// A save of the sidecar must not reload the page that just made it; anything else in the
-// directory, including a new subdirectory's files, must.
-func TestReloadIgnoresTheSidecar(t *testing.T) {
+func classifySidecar(name string) string {
+	if strings.HasSuffix(name, sidecarSuffix) {
+		return msgAnnotations
+	}
+	return msgReload
+}
+
+// A sidecar write refreshes the annotations without reloading the page; anything else in
+// the directory, including a new subdirectory's files, reloads, and wins over a sidecar
+// write in the same burst.
+func TestReloadTellsTheSidecarApart(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	r := newReloader()
-	if err := r.watch(dir, func(name string) bool { return strings.HasSuffix(name, sidecarSuffix) }); err != nil {
+	if err := r.watch(dir, classifySidecar); err != nil {
 		t.Fatal(err)
 	}
 	ch := wakeups(t, r)
@@ -58,23 +70,33 @@ func TestReloadIgnoresTheSidecar(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "doc"+sidecarSuffix), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	expectWakeup(t, ch, false, "a sidecar write")
+	expectWakeup(t, ch, msgAnnotations, "a sidecar write")
 
 	if err := os.WriteFile(filepath.Join(dir, "doc.md"), []byte("# hi\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	expectWakeup(t, ch, true, "a markdown write")
+	expectWakeup(t, ch, msgReload, "a markdown write")
+
+	for _, order := range [][]string{{"doc" + sidecarSuffix, "doc.md"}, {"doc.md", "doc" + sidecarSuffix}} {
+		for _, name := range order {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		expectWakeup(t, ch, msgReload, "a burst of "+strings.Join(order, " then "))
+		expectWakeup(t, ch, "", "that same burst")
+	}
 
 	sub := filepath.Join(dir, "sub")
 	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	expectWakeup(t, ch, true, "a new directory")
+	expectWakeup(t, ch, msgReload, "a new directory")
 	time.Sleep(50 * time.Millisecond) // the new directory is being added to the watcher
 	if err := os.WriteFile(filepath.Join(sub, "deep.md"), []byte("# deep\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	expectWakeup(t, ch, true, "a write in a new subdirectory")
+	expectWakeup(t, ch, msgReload, "a write in a new subdirectory")
 }
 
 func TestReloadScriptFollowsTheFlag(t *testing.T) {
@@ -90,8 +112,8 @@ func TestReloadScriptFollowsTheFlag(t *testing.T) {
 	}
 }
 
-// The page holds a websocket open; a change writes "reload" on it.
-func TestReloadWebsocketGetsTheMessage(t *testing.T) {
+// The page holds one websocket open; every settled burst writes its message on it.
+func TestReloadWebsocketGetsTheMessages(t *testing.T) {
 	t.Parallel()
 
 	r := newReloader()
@@ -108,13 +130,14 @@ func TestReloadWebsocketGetsTheMessage(t *testing.T) {
 	defer resp.Body.Close()
 
 	time.Sleep(50 * time.Millisecond) // the handler must be waiting before the broadcast
-	r.broadcast()
-
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	_, msg, err := conn.ReadMessage()
-	if err != nil || string(msg) != "reload" {
-		t.Fatalf("expected the reload message, got %q (%v)", msg, err)
+	for _, want := range []string{msgAnnotations, msgReload} {
+		r.broadcast(want)
+		_, msg, err := conn.ReadMessage()
+		if err != nil || string(msg) != want {
+			t.Fatalf("expected %q on the same connection, got %q (%v)", want, msg, err)
+		}
 	}
 }

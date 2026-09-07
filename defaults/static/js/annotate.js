@@ -339,6 +339,18 @@
       });
   }
 
+  // The sidecar changed underneath (the agent wrote, or this page saved): refetch and
+  // redraw. An open box keeps what is being typed and follows its entry; it closes only
+  // when the entry is gone.
+  function refresh() {
+    var id = current ? current.a.id : null;
+    return load().then(function () {
+      if (!id || !box.matches(":popover-open")) return;
+      if (current) fillBox(current, null);
+      else closeBox();
+    });
+  }
+
   function save(list) {
     return fetch(ENDPOINT, {
       method: "PUT",
@@ -574,6 +586,9 @@
       ev.preventDefault();
     });
 
+    window.addEventListener("gld:annotations", function () {
+      refresh().catch(console.error);
+    });
     document.addEventListener("selectionchange", function () {
       if (wanted()) showBubble();
     });

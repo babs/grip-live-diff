@@ -144,7 +144,8 @@ kept in the file and reachable last. An entry the agent marked done turns grey; 
 back.
 
 The marks are also listed at the foot of the document, in the same order; hovering an item lights its
-mark, clicking it opens the comment. Saving writes the sidecar without reloading the page. Marks need the CSS Custom Highlight API (Chrome 105, Firefox 140, Safari 17.2); older
+mark, clicking it opens the comment. Saving writes the sidecar without reloading the page, and when
+the agent writes it, the marks, the list and an open box refresh in place, what is being typed kept. Marks need the CSS Custom Highlight API (Chrome 105, Firefox 140, Safari 17.2); older
 browsers keep the file but draw nothing.
 
 ## Toolbar

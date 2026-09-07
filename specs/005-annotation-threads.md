@@ -93,7 +93,7 @@ threads refresh in place, without reloading the page and without losing what the
       labels, oldest first; the tooltip shows the same.
 - [ ] Given the agent rewrites the sidecar (adds a message, sets done) while the page is open, within
       one second the mark turns grey, the list shows the message, and the page did not reload
-      (`performance.getEntriesByType("navigation").length === 1`, and the scroll position is kept).
+      (a marker set on `window` before the write is still there, and the scroll position is kept).
 - [ ] Given the box is open with "not yet saved" typed in the textarea when the agent writes the
       sidecar, the box stays open on the same entry, the thread shows the agent's new message, and
       the textarea still reads "not yet saved".
