@@ -631,3 +631,40 @@ func TestMinimapShipsOnlyInDiffMode(t *testing.T) {
 		}
 	}
 }
+
+// A kept annotated version is a diff reference of its own: the picker offers it, the diff
+// runs against it, and a copy reaped since falls back to since open.
+func TestDiffAgainstAnAnnotatedVersion(t *testing.T) {
+	t.Parallel()
+
+	v1 := "# Title\n\nalpha bravo\n"
+	f := newDiffFixture(t, v1)
+	f.get(docPath)
+	f.put(`[{"exact":"bravo","thread":[{"by":"reader","text":"drop this"}]}]`)
+	hash := strings.TrimSuffix(revisionName(hashOf(v1)), ".md")
+
+	f.write("# Title\n\nalpha charlie\n")
+	body := f.get(docPath + "?diff=" + hash)
+	if !strings.Contains(body, `<del class="gg-del">bravo`) || !strings.Contains(body, `<ins class="gg-ins">charlie</ins>`) {
+		t.Fatalf("expected the diff against the annotated version, got %q", body)
+	}
+	if !strings.Contains(body, `diff-ref-active" aria-current="page" href="`+docPath+`?diff=`+hash+`"`) || !strings.Contains(body, ">annotated · ") {
+		t.Fatalf("expected the picker to offer and select the annotated version, got %q", body)
+	}
+	if strings.Count(body, `aria-current="page"`) != 1 || !markReadDisabled.MatchString(body) {
+		t.Fatalf("expected one current reference and mark-as-read disabled, got %q", body)
+	}
+
+	// The row is there whatever the reference shown; a reaped or unknown copy falls back.
+	if body := f.get(docPath + "?diff=open"); strings.Count(body, ">annotated · ") != 1 {
+		t.Fatalf("expected the annotated row in the picker, got %q", body)
+	}
+	body = f.get(docPath + "?diff=000000000000")
+	if !strings.Contains(body, `diff-ref-active" aria-current="page" href="`+docPath+`?diff=open"`) {
+		t.Fatalf("expected an unknown version to fall back to since open, got %q", body)
+	}
+	f.put(`[]`)
+	if body := f.get(docPath + "?diff=" + hash); strings.Contains(body, ">annotated · ") || !strings.Contains(body, `href="`+docPath+`?diff=open"`) {
+		t.Fatalf("expected no row and a fallback once the copy is reaped, got %q", body)
+	}
+}

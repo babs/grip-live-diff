@@ -12,7 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -177,9 +179,7 @@ func (s *Server) Serve(file string) error {
 	}
 
 	if s.enableReload {
-		// The sidecar is written by the page itself: reloading on it would flash the page
-		// on every comment saved.
-		err := s.reload.watch(directory, func(name string) bool { return strings.HasSuffix(name, sidecarSuffix) })
+		err := s.reload.watch(directory, classifyChange)
 		if err != nil {
 			return fmt.Errorf("watch %s: %w", directory, err)
 		}
@@ -188,6 +188,17 @@ func (s *Server) Serve(file string) error {
 		fmt.Printf("🔄 Auto-reload disabled. Use F5 to manually refresh.\n")
 	}
 	return http.ListenAndServe(fmt.Sprintf(":%d", s.port), handler)
+}
+
+// classifyChange sorts a changed file, given relative to the served directory: the sidecar
+// and the kept revisions are written by the page itself and by the agent, either way the
+// page refetches its marks instead of flashing; anything else reloads it.
+func classifyChange(rel string) string {
+	rel = filepath.ToSlash(rel)
+	if strings.HasSuffix(rel, sidecarSuffix) || strings.HasSuffix(rel, revisionsSuffix) || strings.Contains(rel, revisionsSuffix+"/") {
+		return msgAnnotations
+	}
+	return msgReload
 }
 
 func (s *Server) newHandler(dir http.Dir) http.Handler {
@@ -290,7 +301,48 @@ type htmlStruct struct {
 
 	FileHash       string
 	HasAnnotations bool
+	Revisions      []revisionRef // kept annotated versions, one picker row each
 	ReloadScript   template.HTML
+}
+
+// revisionRef is one kept annotated version as the picker shows it: the twelve hex
+// characters that name its copy, and when the copy was written.
+type revisionRef struct {
+	Hash  string
+	Label string
+}
+
+// listRevisions returns the kept copies of target's annotated versions, oldest first.
+// The time is the copy's, that is the first annotation on that version; no sidecar read,
+// which could wait on an agent holding its lock.
+func listRevisions(dir http.Dir, target string) []revisionRef {
+	entries, err := os.ReadDir(revisionsDir(dir, target))
+	if err != nil {
+		return nil
+	}
+	type stamped struct {
+		revisionRef
+		at time.Time
+	}
+	var found []stamped
+	for _, e := range entries {
+		info, err := e.Info()
+		if !revisionFile.MatchString(e.Name()) || err != nil {
+			continue
+		}
+		found = append(found, stamped{revisionRef{Hash: strings.TrimSuffix(e.Name(), ".md"), Label: info.ModTime().Local().Format("15:04")}, info.ModTime()})
+	}
+	sort.Slice(found, func(i, j int) bool { return found[i].at.Before(found[j].at) })
+	out := make([]revisionRef, len(found))
+	for i, f := range found {
+		out[i] = f.revisionRef
+	}
+	return out
+}
+
+// isRevisionMode tells a ?diff= value naming a kept annotated version.
+func isRevisionMode(mode string) bool {
+	return revisionFile.MatchString(mode + ".md")
 }
 
 func (s *Server) pageTitle(filename string) string {
@@ -338,6 +390,9 @@ func (h *htmlStruct) diffControls() {
 	case h.DiffMode == diffModeHead:
 		h.MarkReadDisabled = true
 		h.MarkReadTitle = "The commit reference is git's to move"
+	case isRevisionMode(h.DiffMode):
+		h.MarkReadDisabled = true
+		h.MarkReadTitle = "The annotated version is fixed"
 	case h.DiffEmpty:
 		h.MarkReadDisabled = true
 		h.MarkReadTitle = "Nothing new to read"
@@ -377,13 +432,22 @@ func (s *Server) buildPage(r *http.Request, dir http.Dir, hasGit bool, content, 
 		page.HasAnnotations = info.Size() > 0
 	}
 
+	page.Revisions = listRevisions(dir, r.URL.Path)
+
 	var reference []byte
-	switch r.URL.Query().Get("diff") {
-	case diffModeOpen:
+	switch mode := r.URL.Query().Get("diff"); {
+	case isRevisionMode(mode):
+		// Reaped since the link was made (or remembered by the browser): since open, like
+		// HEAD without git.
 		page.DiffMode, reference = diffModeOpen, baseline
-	case diffModeLast:
+		if kept, err := os.ReadFile(filepath.Join(revisionsDir(dir, r.URL.Path), mode+".md")); err == nil { //nolint:gosec // name is twelve hex characters under our directory
+			page.DiffMode, reference = mode, kept
+		}
+	case mode == diffModeOpen:
+		page.DiffMode, reference = diffModeOpen, baseline
+	case mode == diffModeLast:
 		page.DiffMode, reference = diffModeLast, prev
-	case diffModeHead:
+	case mode == diffModeHead:
 		if !hasGit {
 			// The toggle comes back to the last reference used, which may be HEAD from
 			// another directory: stay in diff mode rather than silently showing nothing.

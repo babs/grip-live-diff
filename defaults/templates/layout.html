@@ -109,6 +109,9 @@
           {{else}}
           <span class="diff-ref diff-ref-disabled" title="Not a git work tree">HEAD</span>
           {{end}}
+          {{range .Revisions}}
+          <a class="diff-ref{{if eq $.DiffMode .Hash}} diff-ref-active{{end}}" {{if eq $.DiffMode .Hash}}aria-current="page"{{end}} href="{{ $.Path }}?diff={{ .Hash }}" title="Everything that changed since this version was annotated">annotated · {{ .Label }}</a>
+          {{end}}
         </nav>
       </div>
       {{if .DiffLabel}}

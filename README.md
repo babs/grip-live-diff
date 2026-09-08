@@ -103,7 +103,7 @@ saved next to the file as `<name>.annotations.json5`:
 // grip-live-diff annotations for README.md. JSON5: comments and trailing commas are fine.
 // ... how to take part, what not to touch, the entry format ...
 {
-  "version": 1,
+  "version": 2,
   "file": "README.md",
   "annotations": [
     {
@@ -112,33 +112,47 @@ saved next to the file as `<name>.annotations.json5`:
       "prefix": "e sentence before it ends with ",
       "suffix": " jumps over the lazy dog. Then",
       "lines": [42, 42],
-      "comment": "Too informal, rephrase.",
-      "created": "2026-09-05T11:52:03+02:00",
-      "updated": null,
-      "file_hash": "sha256:3b2f…"
+      "file_hash": "sha256:3b2f…",
+      "thread": [
+        { "by": "reader", "at": "2026-09-05T11:52:03+02:00", "text": "Too informal, rephrase." }
+      ]
     }
   ]
 }
 ```
 
 Then hand the file to the agent: *"handle the comments in README.annotations.json5"*. The header of
-the file tells it the rules: take an `flock` on the file while editing it; once a request is handled,
-set `status: "done"` with a short `reply`, or delete the entry; when it rewrites an annotated passage,
-put the new wording in `exact` so the mark follows; `id`, `created`, `file_hash` and `comment` are
-the reader's and must not change. `lines` is a hint into the markdown source, recomputed at every save
-from the browser, so `exact` is the truth. A comment with `exact: null` is about the whole document
-(the document button, or `A`).
+the file tells it the rules: take an `flock` on the file while editing it; answer by appending
+`{ "by": "agent", "at": …, "text": … }` to the `thread`; once a request is handled, set
+`status: "done"` as well, or delete the entry; when it rewrites an annotated passage, put the new
+wording in `exact` so the mark follows; reader messages, `id` and `file_hash` are the reader's and
+must not change. A reader message after the agent's reopens the entry: `status` is dropped and the
+agent handles it again. `lines` is a hint into the markdown source, recomputed at every save from the
+browser, so `exact` is the truth. A comment with `exact: null` is about the whole document (the
+document button, or `A`). A version 1 sidecar (`comment` / `reply`) is read and rewritten as
+version 2 on the next save.
 
-Marks are drawn whenever the file has annotations, capture on or off. Hovering one shows the comment
-and the agent's reply; clicking it opens the comment to edit or delete. The row under the toolbar walks
+Every version of the file that has annotations against it is kept beside the sidecar, in
+`<name>.annotations.d/<hash>.md`, written with the first comment on that version and removed with
+the last entry that refers to it; the sidecar lists them under `revisions`, keyed by `file_hash`.
+After a wholesale rewrite, an entry whose text is gone links to the diff against that version
+(`?diff=<hash>`, also offered in the reference picker as "annotated · HH:MM"), where the lost
+passage shows struck through. A kept copy cannot be annotated itself.
+
+Marks are drawn whenever the file has annotations, capture on or off. Hovering one shows the thread;
+clicking it opens the box: the messages in order, each labelled "you" or "agent", a badge saying
+open, done or reopened, and a textarea that edits your last message or, once the agent has answered,
+composes a follow-up. The row under the toolbar walks
 through them, `n` and `p` do the same: document-level comments first, then in document order, then
 the ones whose text is gone from the file. Each comment box says which version of the file it was
 written against and whether the file changed since; a passage that was reworded is re-anchored on its
 surroundings and drawn with a dashed underline, a passage that disappeared with its surroundings is
-kept in the file and reachable last. An entry answered by the agent turns grey and shows the reply.
+kept in the file and reachable last. An entry the agent marked done turns grey; a follow-up turns it
+back.
 
 The marks are also listed at the foot of the document, in the same order; hovering an item lights its
-mark, clicking it opens the comment. Saving writes the sidecar without reloading the page. Marks need the CSS Custom Highlight API (Chrome 105, Firefox 140, Safari 17.2); older
+mark, clicking it opens the comment. Saving writes the sidecar without reloading the page, and when
+the agent writes it, the marks, the list and an open box refresh in place, what is being typed kept. Marks need the CSS Custom Highlight API (Chrome 105, Firefox 140, Safari 17.2); older
 browsers keep the file but draw nothing.
 
 ## Toolbar

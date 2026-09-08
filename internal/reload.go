@@ -14,23 +14,33 @@ import (
 )
 
 // Live reload: the page holds a websocket open, the server writes "reload" on it when a
-// watched file changes. Adapted from github.com/aarol/reload (MIT, Aaro Luomanen) so the
-// watcher can skip files whose changes must not reload the page, which upstream cannot.
+// watched file changes, "annotations" when only a sidecar did. Adapted from
+// github.com/aarol/reload (MIT, Aaro Luomanen) so the watcher can tell files apart, which
+// upstream cannot.
 
 const reloadEndpoint = "/reload_ws"
 
 // A burst of events from one save (editor temp file, rename, write) is one reload.
 const reloadDebounce = 100 * time.Millisecond
 
+const (
+	msgReload      = "reload"
+	msgAnnotations = "annotations"
+)
+
 // reloadScript is what the page runs; the websocket closing means the server went away, so
-// it retries and reloads once it is back.
+// it retries and reloads once it is back. A sidecar change is handed to annotate.js as a
+// DOM event: the page stays, the marks are refetched.
 const reloadScript = `<script>
   function retry() { setTimeout(function () { listen(true) }, 1000) }
   function listen(isRetry) {
     var protocol = location.protocol === "https:" ? "wss://" : "ws://"
     var ws = new WebSocket(protocol + location.host + "` + reloadEndpoint + `")
     if (isRetry) ws.onopen = function () { location.reload() }
-    ws.onmessage = function (msg) { if (msg.data === "reload") location.reload() }
+    ws.onmessage = function (msg) {
+      if (msg.data === "` + msgReload + `") location.reload()
+      else if (msg.data === "` + msgAnnotations + `") window.dispatchEvent(new Event("gld:annotations"))
+    }
     ws.onclose = retry
   }
   listen(false)
@@ -40,6 +50,11 @@ type reloader struct {
 	cond     *sync.Cond
 	upgrader websocket.Upgrader
 	timer    *time.Timer
+	// pending is the message of the burst being debounced; a reload outranks an
+	// annotations refresh. seq and last are what a settled burst leaves for the waiters.
+	pending string
+	seq     uint64
+	last    string
 }
 
 func newReloader() *reloader {
@@ -50,17 +65,29 @@ func newReloader() *reloader {
 	}
 }
 
-// broadcast wakes every waiting websocket once the burst has settled.
-func (r *reloader) broadcast() {
+// broadcast wakes every waiting websocket with msg once the burst has settled.
+func (r *reloader) broadcast(msg string) {
 	r.cond.L.Lock()
 	defer r.cond.L.Unlock()
+	if r.pending != msgReload {
+		r.pending = msg
+	}
 	if r.timer != nil {
 		r.timer.Stop()
 	}
-	r.timer = time.AfterFunc(reloadDebounce, r.cond.Broadcast)
+	r.timer = time.AfterFunc(reloadDebounce, r.settle)
 }
 
-// serveWS holds the connection until the next change, then tells the page to reload.
+func (r *reloader) settle() {
+	r.cond.L.Lock()
+	defer r.cond.L.Unlock()
+	r.last, r.pending = r.pending, ""
+	r.seq++
+	r.cond.Broadcast()
+}
+
+// serveWS holds the connection and relays every settled burst until the page goes away.
+// ponytail: a page that left is only noticed at the next change, when the write fails.
 func (r *reloader) serveWS(w http.ResponseWriter, req *http.Request) {
 	conn, err := r.upgrader.Upgrade(w, req, nil)
 	if err != nil {
@@ -69,15 +96,25 @@ func (r *reloader) serveWS(w http.ResponseWriter, req *http.Request) {
 	//nolint:errcheck
 	defer conn.Close()
 	r.cond.L.Lock()
-	r.cond.Wait()
-	r.cond.L.Unlock()
-	//nolint:errcheck
-	conn.WriteMessage(websocket.TextMessage, []byte("reload"))
+	seen := r.seq
+	for {
+		for r.seq == seen {
+			r.cond.Wait()
+		}
+		seen = r.seq
+		msg := r.last
+		r.cond.L.Unlock()
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
+			return
+		}
+		r.cond.L.Lock()
+	}
 }
 
 // watch follows dir and every directory under it, present or created later, and
-// broadcasts on any change except the files ignore accepts.
-func (r *reloader) watch(dir string, ignore func(name string) bool) error {
+// broadcasts on any change the message classify gives its file (path relative to dir),
+// none to ignore it.
+func (r *reloader) watch(dir string, classify func(name string) string) error {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -116,10 +153,15 @@ func (r *reloader) watch(dir string, ignore func(name string) bool) error {
 						w.Add(e.Name)
 					}
 				}
-				if ignore(filepath.Base(e.Name)) || !e.Has(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) {
+				rel, err := filepath.Rel(dir, e.Name)
+				if err != nil {
+					rel = e.Name
+				}
+				msg := classify(rel)
+				if msg == "" || !e.Has(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) {
 					continue
 				}
-				r.broadcast()
+				r.broadcast(msg)
 			}
 		}
 	}()

@@ -17,7 +17,7 @@ func TestAnnotationsWaitForTheAgentLock(t *testing.T) {
 	t.Parallel()
 
 	f := newDiffFixture(t, "# Title\n\nalpha bravo\n")
-	first := f.put(`[{"exact":"alpha bravo","comment":"rephrase"}]`).Annotations[0]
+	first := f.put(`[{"exact":"alpha bravo","thread":[{"by":"reader","text":"rephrase"}]}]`).Annotations[0]
 
 	p := filepath.Join(f.dir, sidecarName)
 	agent, err := os.OpenFile(p, os.O_RDWR, 0o644)
@@ -42,7 +42,7 @@ func TestAnnotationsWaitForTheAgentLock(t *testing.T) {
 
 	done := make(chan annotationsResponse, 1)
 	go func() {
-		done <- f.put(`[{"id":"` + first.ID + `","comment":"rephrase, shorter"}]`)
+		done <- f.put(`[{"id":"` + first.ID + `","thread":[{"by":"reader","text":"rephrase, shorter"}]}]`)
 	}()
 
 	select {
@@ -52,7 +52,7 @@ func TestAnnotationsWaitForTheAgentLock(t *testing.T) {
 	}
 
 	// The agent answers under its lock, then releases.
-	edited := strings.Replace(f.sidecar(), `"comment": "rephrase"`, `"comment": "rephrase", "status": "done"`, 1)
+	edited := strings.Replace(f.sidecar(), `"file_hash"`, `"status": "done", "file_hash"`, 1)
 	if _, err := agent.WriteAt([]byte(edited), 0); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestAnnotationsWaitForTheAgentLock(t *testing.T) {
 	select {
 	case resp := <-done:
 		a := resp.Annotations[0]
-		if a.Status != "done" || a.Comment != "rephrase, shorter" {
+		if a.Status != "done" || a.Thread[0].Text != "rephrase, shorter" {
 			t.Fatalf("expected the save merged over the agent's edit, got %+v", a)
 		}
 	case <-time.After(2 * time.Second):
