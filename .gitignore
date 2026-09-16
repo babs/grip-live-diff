@@ -2,6 +2,6 @@ vendor
 bin
 dist
 grip-live-diff
-.claude/scratchpad/
+.claude/
 *.annotations.json5
 *.annotations.d/
