@@ -50,6 +50,7 @@ threads refresh in place, without reloading the page and without losing what the
   drawn like open.
 - Live refresh: the watcher no longer ignores `*.annotations.json5`. A sidecar change broadcasts
   `annotations` instead of `reload`; a burst that also touches any other file broadcasts `reload`.
+  *Superseded by [007](007-reload-scoped-to-page.md): only the page's own files count.*
   The websocket stays open across messages (today it closes after one, and the reconnect path
   reloads the page). On `annotations` the page refetches the sidecar and redraws marks, list and
   box; the textarea keeps its content and the box stays on the same entry by id. If that entry is
@@ -132,6 +133,7 @@ threads refresh in place, without reloading the page and without losing what the
   within a burst, `serveWS` loops until the write fails; `server.go` passes the sidecar test as
   the classifier instead of the ignore filter; the reload script dispatches a DOM event on
   `annotations`; `annotate.js` listens and calls `load()` keeping the textarea and the current entry.
+  *(classifier superseded by [007](007-reload-scoped-to-page.md))*
 - **Data model impact**: none.
 - **DoD**: `go test ./internal/ -run Reload` green (kind selection, burst precedence, two
   messages on one connection); browser check: `flock`-guarded rewrite of the sidecar by a script

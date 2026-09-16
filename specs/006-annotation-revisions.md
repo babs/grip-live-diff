@@ -38,7 +38,8 @@ where the lost passage shows struck through.
   server, or the copy was deleted by hand) simply has no revision; nothing else changes.
 - Watcher: changes under `*.annotations.d/` are classified like the sidecar (`annotations`), so
   writing a revision during a save does not reload the page. The classifier receives the path
-  relative to the served directory, not the base name.
+  relative to the served directory, not the base name. *Superseded by
+  [007](007-reload-scoped-to-page.md): no classifier, each page routes the changed paths.*
 - `PUT /__annotations` with a path inside a `.annotations.d/` directory is refused with 400: a
   revision is not annotatable. `GET` on such a path renders it as any markdown file, read-only view.
 - Diff picker: one reference per kept revision after `HEAD`, labelled "annotated · HH:MM" (the
@@ -80,7 +81,7 @@ where the lost passage shows struck through.
 - [x] Given an orphaned entry with a revision, its note in the box and in the list links to
       `?diff=<hash>`; in that diff the passage is struck through and the entry stays orphaned (no mark).
 - [x] `go test ./...` green; revision write, reaping, map rebuild, refusal and classifier pinned by
-      Go tests.
+      Go tests. *(classifier superseded by [007](007-reload-scoped-to-page.md))*
 
 ## Phases
 
@@ -88,7 +89,8 @@ where the lost passage shows struck through.
 - Work: `internal/annotations.go`: `Revisions map[string]string` on the sidecar; after the merge,
   write the current content for entries carrying the current hash when missing, delete unreferenced
   files, remove the empty directory; header line. `server.go`: classifier gets the relative path,
-  `.annotations.d/` classified as `annotations`; PUT inside it refused.
+  `.annotations.d/` classified as `annotations`; PUT inside it refused. *(classifier superseded by
+  [007](007-reload-scoped-to-page.md))*
 - **Data model impact**: `revisions` key in the sidecar; new directory beside it.
 - **DoD**: `go test ./internal/ -run 'Annotations|Reload'` green on the criteria above.
 

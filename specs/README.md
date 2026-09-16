@@ -8,3 +8,4 @@
 | 004 | [Diff reference picker](004-diff-reference-picker.md) | shipped |
 | 005 | [Annotation threads](005-annotation-threads.md) | shipped |
 | 006 | [Annotated revisions](006-annotation-revisions.md) | shipped |
+| 007 | [Reload scoped to the page](007-reload-scoped-to-page.md) | shipped |
