@@ -28,6 +28,9 @@ import (
 
 const defaultHTMLTitle = "grip-live-diff - markdown preview"
 
+// staticPrefix serves the embedded assets; the reload script skips it when listing resources.
+const staticPrefix = "/static/"
+
 // Diff references selectable through the ?diff= query parameter.
 const (
 	diffModeOpen = "open" // compare with the version served when the file was first opened
@@ -179,7 +182,7 @@ func (s *Server) Serve(file string) error {
 	}
 
 	if s.enableReload {
-		err := s.reload.watch(directory, classifyChange)
+		err := s.reload.watch(directory)
 		if err != nil {
 			return fmt.Errorf("watch %s: %w", directory, err)
 		}
@@ -190,24 +193,13 @@ func (s *Server) Serve(file string) error {
 	return http.ListenAndServe(fmt.Sprintf(":%d", s.port), handler)
 }
 
-// classifyChange sorts a changed file, given relative to the served directory: the sidecar
-// and the kept revisions are written by the page itself and by the agent, either way the
-// page refetches its marks instead of flashing; anything else reloads it.
-func classifyChange(rel string) string {
-	rel = filepath.ToSlash(rel)
-	if strings.HasSuffix(rel, sidecarSuffix) || strings.HasSuffix(rel, revisionsSuffix) || strings.Contains(rel, revisionsSuffix+"/") {
-		return msgAnnotations
-	}
-	return msgReload
-}
-
 func (s *Server) newHandler(dir http.Dir) http.Handler {
 	// Probed once: it decides whether the toggle offers the "last commit" reference at all.
 	hasGit := isGitWorkTree(dir)
 
 	fileServer := http.FileServer(dir)
 	mux := http.NewServeMux()
-	mux.Handle("/static/", http.FileServer(http.FS(defaults.StaticFiles)))
+	mux.Handle(staticPrefix, http.FileServer(http.FS(defaults.StaticFiles)))
 	if s.enableReload {
 		mux.HandleFunc(reloadEndpoint, s.reload.serveWS)
 	}
