@@ -122,7 +122,7 @@ saved next to the file as `<name>.annotations.json5`:
 ```
 
 Then hand the file to the agent: *"handle the comments in README.annotations.json5"*. The header of
-the file tells it the rules: take an `flock` on the file while editing it; answer by appending
+the file tells it the rules: take an exclusive `flock` on the file while editing it; answer by appending
 `{ "by": "agent", "at": …, "text": … }` to the `thread`; once a request is handled, set
 `status: "done"` as well, or delete the entry; when it rewrites an annotated passage, put the new
 wording in `exact` so the mark follows; reader messages, `id` and `file_hash` are the reader's and
@@ -166,7 +166,7 @@ browsers keep the file but draw nothing.
 
 Keys: `d` toggles the diff, `1` `2` `3` pick the reference, `n` `p` walk the annotations, `a`
 annotates the selection, `A` comments on the whole document, `Esc` closes a comment box, `Ctrl-Enter`
-saves it.
+(`Cmd-Enter` on macOS) saves it.
 
 Width, theme, minimap visibility, annotation capture and the last diff reference are kept in
 `localStorage`, so they
