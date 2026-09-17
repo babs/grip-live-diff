@@ -29,7 +29,7 @@
       <circle cx="12" cy="382" r="8" fill="#d29922"/>
       <text x="36" y="392">Annotate what reads wrong</text>
       <circle cx="12" cy="434" r="8" fill="#58a6ff"/>
-      <text x="36" y="444">Your agent replies. You iterate.</text>
+      <text x="36" y="444">Point your agent at it. It replies, you iterate.</text>
     </g>
   </g>
   <text x="640" y="584" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" fill="#8b949e">go install github.com/babs/grip-live-diff@latest</text>
