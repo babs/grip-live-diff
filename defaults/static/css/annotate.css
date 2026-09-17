@@ -15,6 +15,10 @@
 ::highlight(annot-active) {
   background-color: rgba(255, 196, 0, 0.45);
 }
+/* The selection being annotated, once the box took the focus and the native selection with it. */
+::highlight(annot-pending) {
+  background-color: rgba(255, 213, 0, 0.3);
+}
 
 .annotate-toggle[aria-pressed="true"] {
   opacity: 1;
@@ -284,7 +288,8 @@
   ::highlight(annot),
   ::highlight(annot-fuzzy),
   ::highlight(annot-done),
-  ::highlight(annot-active) {
+  ::highlight(annot-active),
+  ::highlight(annot-pending) {
     background-color: transparent;
     text-decoration: none;
   }

@@ -96,6 +96,9 @@ current position stays visible. The button next to *Mark as read* hides it.
 When the thing rewriting the file is an agent, the feedback loop has a gap: you read the preview, spot
 a sentence to rework, then describe *where* it is in the chat. Annotations close it. Turn capture on
 with the pencil button, select text, click **Annotate** (or press `a`) and type what should change.
+A double-click turns capture on if it was off, and the selection it starts (a word, or words dragged
+from one) opens the box directly. While the box is open the selection stays tinted, the focus having
+left it.
 The passage is marked Confluence-style, a yellow tint with an orange underline, and the comment is
 saved next to the file as `<name>.annotations.json5`:
 
@@ -152,13 +155,16 @@ back.
 
 The marks are also listed at the foot of the document, in the same order; hovering an item lights its
 mark, clicking it opens the comment. Saving writes the sidecar without reloading the page, and when
-the agent writes it, the marks, the list and an open box refresh in place, what is being typed kept. Marks need the CSS Custom Highlight API (Chrome 105, Firefox 140, Safari 17.2); older
-browsers keep the file but draw nothing.
+the agent writes it, the marks, the list and an open box refresh in place, what is being typed kept.
+A reload due while you are selecting, have the **Annotate** bubble up or a box open waits until the
+selection is dropped, the box saved or closed; then it runs. Marks need the CSS Custom Highlight API
+(Chrome 105, Firefox 140, Safari 17.2); older browsers keep the file but draw nothing.
 
 ## Toolbar
 
 | Button | Does                                                                              |
 | ------ | --------------------------------------------------------------------------------- |
+| house  | Back to the index, the listing of the served directory                            |
 | `↔`    | Page width: **normal** (GitHub's 896px), **wide** (1400px), **full** (no limit)   |
 | `±`    | Diff on/off, see above                                                            |
 | theme  | Light or dark                                                                     |

@@ -35,8 +35,13 @@ const (
 // reloadScript is what the page runs; the websocket closing means the server went away, so
 // it retries and reloads once it is back. A sidecar change is handed to annotate.js as a
 // DOM event: the page stays, the marks are refetched. It waits for the body, whose [src]
-// elements are the resources; the embedded assets are never a file on disk.
+// elements are the resources; the embedded assets are never a file on disk. A reload is
+// first offered as a cancelable gld:reload event: annotate.js cancels it while the reader
+// is selecting or typing a comment, and reloads itself once done.
 const reloadScript = `<script>
+  function reload() {
+    if (document.dispatchEvent(new Event("gld:reload", { cancelable: true }))) location.reload()
+  }
   function retry() { setTimeout(function () { listen(true) }, 1000) }
   function listen(isRetry) {
     var protocol = location.protocol === "https:" ? "wss://" : "ws://"
@@ -48,9 +53,9 @@ const reloadScript = `<script>
     })
     resources.forEach(function (res) { params.append("res", res) })
     var ws = new WebSocket(protocol + location.host + "` + reloadEndpoint + `?" + params)
-    if (isRetry) ws.onopen = function () { location.reload() }
+    if (isRetry) ws.onopen = reload
     ws.onmessage = function (msg) {
-      if (msg.data === "` + msgReload + `") location.reload()
+      if (msg.data === "` + msgReload + `") reload()
       else if (msg.data === "` + msgAnnotations + `") window.dispatchEvent(new Event("gld:annotations"))
     }
     ws.onclose = retry

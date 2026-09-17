@@ -141,6 +141,25 @@ func TestReloadScriptFollowsTheFlag(t *testing.T) {
 	}
 }
 
+// Every reload the script runs is first offered as a cancelable gld:reload: annotate.js
+// holds it while the reader is mid-annotation. A bare location.reload() would skip the hold.
+func TestReloadScriptOffersEveryReloadAsACancelableEvent(t *testing.T) {
+	t.Parallel()
+
+	f := &diffFixture{t: t, dir: t.TempDir()}
+	f.handler = NewServer("localhost", 6419, false, false, true, NewParser()).newHandler(http.Dir(f.dir))
+	f.write("# Title\n")
+	page := f.get(docPath)
+
+	gated := `if (document.dispatchEvent(new Event("gld:reload", { cancelable: true }))) location.reload()`
+	if !strings.Contains(page, gated) {
+		t.Fatalf("reload script lacks the gated reload %q", gated)
+	}
+	if n := strings.Count(page, "location.reload()"); n != 1 {
+		t.Fatalf("expected the gated call to be the only location.reload(), found %d", n)
+	}
+}
+
 // The page holds one websocket open; every settled burst that concerns it writes its
 // message on it, the others write nothing.
 func TestReloadWebsocketGetsTheMessages(t *testing.T) {
