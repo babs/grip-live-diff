@@ -9,7 +9,7 @@ depends = ["init", "vendor", "build", "format", "lint"]
 
 [tasks.init]
 description = "Initialize the project"
-run = "pre-commit install"
+run = "prek install"
 
 [tasks.run]
 description = "Run"

@@ -200,6 +200,10 @@ func (s *Server) newHandler(dir http.Dir) http.Handler {
 	fileServer := http.FileServer(dir)
 	mux := http.NewServeMux()
 	mux.Handle(staticPrefix, http.FileServer(http.FS(defaults.StaticFiles)))
+	// The stdlib directory listing has no <link rel="icon">, so browsers fall back to /favicon.ico.
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, defaults.StaticFiles, "static/images/favicon.ico")
+	})
 	if s.enableReload {
 		mux.HandleFunc(reloadEndpoint, s.reload.serveWS)
 	}
