@@ -668,3 +668,15 @@ func TestDiffAgainstAnAnnotatedVersion(t *testing.T) {
 		t.Fatalf("expected no row and a fallback once the copy is reaped, got %q", body)
 	}
 }
+
+func TestFaviconIsServedAtTheRootForTheDirectoryListing(t *testing.T) {
+	f := newDiffFixture(t, "# doc\n")
+	recorder := httptest.NewRecorder()
+	f.handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/favicon.ico", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /favicon.ico: got %d, want 200", recorder.Code)
+	}
+	if ct := recorder.Header().Get("Content-Type"); !strings.Contains(ct, "icon") {
+		t.Fatalf("Content-Type %q, want an icon type", ct)
+	}
+}

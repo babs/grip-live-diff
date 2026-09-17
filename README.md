@@ -2,7 +2,7 @@
 <br />
 <div align="center">
   <a href="#">
-    <img src=".github/docs/logo-1.png" alt="Logo" height="120">
+    <img src=".github/docs/logo.svg" alt="Logo" height="120">
   </a>
 
   <h3 align="center">grip-live-diff</h3>
