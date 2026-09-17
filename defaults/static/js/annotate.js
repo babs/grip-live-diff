@@ -10,6 +10,9 @@
 
   var article, model, entries = [], doc = { annotations: [] }, pending = null, current = null, hovered = null;
   var bubble, tip, tipThread, box, textarea, meta, hitFrame;
+  // A reload offered while the reader is mid-selection (pointer down), has the bubble to
+  // click or a box open is held, then run by release() once none of that is left.
+  var pointerDown = false, held = false, saving = false, wordSelect = false;
 
   var supported = "highlights" in CSS && typeof Highlight === "function";
 
@@ -408,6 +411,8 @@
       prefix: model.text.slice(Math.max(0, from - CONTEXT), from),
       suffix: model.text.slice(to, to + CONTEXT),
       rect: range.getBoundingClientRect(),
+      start: from,
+      end: to,
     };
   }
 
@@ -415,12 +420,21 @@
     var quote = quoteOf(document.getSelection());
     if (!quote || box.matches(":popover-open")) {
       bubble.hidden = true;
+      release();
       return;
     }
     pending = quote;
     bubble.hidden = false;
     bubble.style.left = Math.min(quote.rect.right, window.innerWidth - bubble.offsetWidth - 8) + "px";
     bubble.style.top = quote.rect.bottom + 6 + "px";
+  }
+
+  function busy() {
+    return pointerDown || !bubble.hidden || box.matches(":popover-open");
+  }
+
+  function release() {
+    if (held && !busy()) location.reload();
   }
 
   // The part of the box that mirrors the entry: meta line and the messages above the
@@ -458,6 +472,8 @@
     tip.hidden = true;
     var rect = entry && entry.ranges.length ? rectOf(entry) : quote ? quote.rect : null;
     box.classList.toggle("annot-box-centered", !rect);
+    // Focusing the textarea drops the native selection: the quote stays marked instead.
+    CSS.highlights.set("annot-pending", new Highlight(...(quote ? rangesOf(quote.start, quote.end) : [])));
     box.showPopover();
     // Placed once shown: a hidden popover has no size to clamp against.
     box.style.left = rect ? Math.max(8, Math.min(rect.left, window.innerWidth - box.offsetWidth - 8)) + "px" : "";
@@ -468,14 +484,16 @@
 
   function closeBox() {
     if (box.matches(":popover-open")) box.hidePopover();
+    CSS.highlights.delete("annot-pending");
     current = null;
     pending = null;
     draw();
+    release();
   }
 
   function submit() {
     var text = textarea.value.trim();
-    if (!text) return;
+    if (!text || saving) return;
     var list = doc.annotations.slice();
     if (current) {
       list = list.map(function (a) {
@@ -484,18 +502,28 @@
     } else {
       list.push({ exact: pending ? pending.exact : null, prefix: pending ? pending.prefix : null, suffix: pending ? pending.suffix : null, thread: [{ by: "reader", text: text }] });
     }
-    box.hidePopover();
-    pending = null;
-    save(list).catch(failed);
+    // Closed once saved, not before: a reload deferred behind the open box would otherwise
+    // cut the PUT short. pending stays until then, so a retry keeps its anchor.
+    write(list);
   }
 
   function remove() {
-    if (!current) return;
+    if (!current || saving) return;
     var id = current.a.id;
-    box.hidePopover();
-    save(doc.annotations.filter(function (a) {
+    write(doc.annotations.filter(function (a) {
       return a.id !== id;
-    })).catch(failed);
+    }));
+  }
+
+  // The box stays focused during the PUT: one write at a time, or a double Ctrl-Enter
+  // sends the entry twice.
+  function write(list) {
+    saving = true;
+    save(list)
+      .then(closeBox, failed)
+      .finally(function () {
+        saving = false;
+      });
   }
 
   // The comment is still in the textarea: reopen rather than lose it behind an alert.
@@ -617,6 +645,23 @@
     window.addEventListener("gld:annotations", function () {
       refresh().catch(console.error);
     });
+    document.addEventListener("gld:reload", function (ev) {
+      if (!busy()) return;
+      held = true;
+      ev.preventDefault();
+    });
+    ["pointerdown", "pointerup", "pointercancel"].forEach(function (type) {
+      document.addEventListener(type, function (ev) {
+        // Main button only: a context-menu press may never report its release.
+        pointerDown = type === "pointerdown" && ev.button === 0;
+        release();
+      });
+    });
+    // A window switch mid-press loses the pointerup.
+    window.addEventListener("blur", function () {
+      pointerDown = false;
+      release();
+    });
     document.addEventListener("selectionchange", function () {
       if (wanted()) showBubble();
     });
@@ -626,16 +671,35 @@
     });
     article.addEventListener("click", function (ev) {
       // A drag-select ending on a mark also fires click: that is a selection, not a click.
-      if (!document.getSelection().isCollapsed) return;
+      // So is a multi-click (ev.detail counts them), handled on mouseup.
+      if (ev.detail >= 2 || !document.getSelection().isCollapsed) return;
       var e = entryAt(ev.clientX, ev.clientY);
       if (e) openBox(e, null);
     });
+    // A selection started by a double-click (a word, or words dragged from one) is the
+    // annotation itself, capture on or off: the box opens without the bubble stop. Armed
+    // on the press that selects the word (detail 2), opened on the release, wherever it
+    // lands; dblclick would not fire once the pointer has moved.
+    article.addEventListener("mousedown", function (ev) {
+      wordSelect = ev.detail >= 2 && ev.button === 0;
+      if (wordSelect && !wanted()) capture(true);
+    });
+    document.addEventListener("mouseup", function () {
+      if (!wordSelect) return;
+      wordSelect = false;
+      if (box.matches(":popover-open")) return;
+      pending = quoteOf(document.getSelection());
+      if (pending) openBox(null, pending);
+    });
   }
 
-  function reflect(button) {
-    var on = wanted();
-    button.setAttribute("aria-pressed", String(on));
-    if (!on && bubble) bubble.hidden = true;
+  function capture(on) {
+    remember(on);
+    var button = document.getElementById("annotate-toggle");
+    button.setAttribute("aria-pressed", String(wanted()));
+    if (!on) bubble.hidden = true;
+    draw();
+    release();
   }
 
   document.addEventListener("DOMContentLoaded", function () {
@@ -649,11 +713,9 @@
     }
     model = buildModel();
     mount();
-    reflect(button);
+    button.setAttribute("aria-pressed", String(wanted()));
     button.addEventListener("click", function () {
-      remember(!wanted());
-      reflect(button);
-      draw();
+      capture(!wanted());
     });
     load().catch(console.error);
   });

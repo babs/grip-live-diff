@@ -9,3 +9,4 @@
 | 005 | [Annotation threads](005-annotation-threads.md) | shipped |
 | 006 | [Annotated revisions](006-annotation-revisions.md) | shipped |
 | 007 | [Reload scoped to the page](007-reload-scoped-to-page.md) | shipped |
+| 008 | [Reload held while annotating](008-reload-held-while-annotating.md) | shipped |
