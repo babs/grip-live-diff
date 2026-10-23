@@ -28,6 +28,9 @@ import (
 
 const defaultHTMLTitle = "grip-live-diff - markdown preview"
 
+// markdownPath is what the server renders as a document.
+var markdownPath = regexp.MustCompile(`(?i)\.md$`)
+
 // staticPrefix serves the embedded assets; the reload script skips it when listing resources.
 const staticPrefix = "/static/"
 
@@ -208,7 +211,7 @@ func (s *Server) newHandler(dir http.Dir) http.Handler {
 		mux.HandleFunc(reloadEndpoint, s.reload.serveWS)
 	}
 
-	regex := regexp.MustCompile(`(?i)\.md$`)
+	regex := markdownPath
 	mux.HandleFunc("/__baseline", func(w http.ResponseWriter, r *http.Request) {
 		s.handleResetBaseline(w, r, dir, regex)
 	})

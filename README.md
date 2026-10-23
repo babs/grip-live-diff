@@ -47,8 +47,10 @@ grip-live-diff README.md   # render one file
 grip-live-diff             # README.md of the current directory, or a file listing if there is none
 ```
 
-The browser opens on http://localhost:6419. The server watches the file's directory, so any `.md`
-under it is served as well, at its own path.
+The browser opens on http://localhost:6419. The server serves the file's directory, so any `.md`
+under it is served as well, at its own path. It watches only what the open pages show: their
+directory and the directories of the images they embed, so a large tree (`node_modules`, build
+output) costs only the directories the open pages show.
 
 | Flag                  | Default     | Effect                                                             |
 | --------------------- | ----------- | ------------------------------------------------------------------ |
