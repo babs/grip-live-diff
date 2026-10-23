@@ -8,7 +8,7 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "grip-live-diff [file]",
+	Use:   "grip-live-diff [file|dir]",
 	Short: "Render markdown document as html",
 	Args:  cobra.MatchAll(cobra.OnlyValidArgs),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -18,7 +18,7 @@ var rootCmd = &cobra.Command{
 		boundingBox, _ := cmd.Flags().GetBool("bounding-box")
 		noReload, _ := cmd.Flags().GetBool("no-reload")
 
-		var file string
+		var file string // a markdown file, or a directory to serve
 		if len(args) == 1 {
 			file = args[0]
 		}

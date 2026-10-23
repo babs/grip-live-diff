@@ -680,3 +680,33 @@ func TestFaviconIsServedAtTheRootForTheDirectoryListing(t *testing.T) {
 		t.Fatalf("Content-Type %q, want an icon type", ct)
 	}
 }
+
+func TestServeTarget(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	docs := filepath.Join(root, "docs")
+	if err := os.MkdirAll(docs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docs, "README.md"), []byte("# docs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sep := string(filepath.Separator)
+	for _, tc := range []struct {
+		arg, dir, file string
+		fails          bool
+	}{
+		{"", ".", "", false},
+		{docs, docs, "", false},
+		{docs + sep, docs, "", false},
+		{filepath.Join(docs, "README.md"), docs, "README.md", false},
+		{filepath.Join(root, "missing.md"), root, "missing.md", false},
+		{filepath.Join(root, "missing") + sep, "", "", true},
+	} {
+		dir, file, err := serveTarget(tc.arg)
+		if (err != nil) != tc.fails || dir != tc.dir || file != tc.file {
+			t.Errorf("serveTarget(%q): expected (%q, %q, error %v), got (%q, %q, %v)", tc.arg, tc.dir, tc.file, tc.fails, dir, file, err)
+		}
+	}
+}

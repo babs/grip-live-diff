@@ -152,15 +152,33 @@ func (s *Server) putLocked(path string, snap *snapshot) {
 	s.snapshots[path] = snap
 }
 
+// serveTarget splits the argument into the directory to serve and the file to open in it,
+// empty for a directory: its README.md, or its listing.
+func serveTarget(arg string) (directory, filename string, err error) {
+	if arg == "" {
+		return ".", "", nil
+	}
+	info, statErr := os.Stat(arg)
+	switch {
+	case statErr == nil && info.IsDir():
+		return filepath.Clean(arg), "", nil
+	case strings.HasSuffix(arg, "/") || strings.HasSuffix(arg, string(filepath.Separator)):
+		return "", "", fmt.Errorf("%s: no such directory", arg)
+	}
+	return filepath.Dir(arg), filepath.Base(arg), nil
+}
+
 func (s *Server) Serve(file string) error {
-	directory := path.Dir(file)
-	filename := path.Base(file)
+	directory, filename, err := serveTarget(file)
+	if err != nil {
+		return err
+	}
 
 	dir := http.Dir(directory)
 	handler := s.newHandler(dir)
 
 	addr := fmt.Sprintf("http://%s:%d/", s.host, s.port)
-	if file == "" {
+	if filename == "" {
 		// If README.md exists then open README.md at beginning
 		readme := "README.md"
 		f, err := dir.Open(readme)
