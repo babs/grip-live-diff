@@ -1,6 +1,6 @@
 # 009 — Watch on demand
 
-**Status**: draft
+**Status**: shipped
 **Requested by**: DuxLocutus
 **Date**: 2026-10-22
 
@@ -70,37 +70,37 @@ the last socket to leave releases them.
 
 ## Acceptance criteria
 
-- [ ] Given a tree of 68,000 files, the server listens in under 1 s (manual run).
-- [ ] Given the server started and no page open, no directory is watched.
-- [ ] Given `doc.md` open, writing a file in `sub/` (not a resource) sends nothing, and `sub/` is not
+- [x] Given a tree of 68,000 files, the server listens in under 1 s (manual run).
+- [x] Given the server started and no page open, no directory is watched.
+- [x] Given `doc.md` open, writing a file in `sub/` (not a resource) sends nothing, and `sub/` is not
       watched.
-- [ ] Given `sub/doc.md` open, writing it reloads it.
-- [ ] Given `doc.md` open with `img/a.png`, writing `img/a.png` reloads it.
-- [ ] Given `docs/doc.md` open with `/assets/img/a.png` and no `assets/`, creating
+- [x] Given `sub/doc.md` open, writing it reloads it.
+- [x] Given `doc.md` open with `img/a.png`, writing `img/a.png` reloads it.
+- [x] Given `docs/doc.md` open with `/assets/img/a.png` and no `assets/`, creating
       `assets/img/a.png` reloads the page within 3 s.
-- [ ] Given `doc.md` open with `img/a.png` and no `img/`, creating `img/a.png` reloads the page
+- [x] Given `doc.md` open with `img/a.png` and no `img/`, creating `img/a.png` reloads the page
       within 3 s.
-- [ ] Given `doc.md` open with `img/a.png`, removing then recreating `img/` and writing `img/a.png`
+- [x] Given `doc.md` open with `img/a.png`, removing then recreating `img/` and writing `img/a.png`
       reloads the page within 3 s.
-- [ ] Given `docs/doc.md` open with `/assets/img/a.png`, renaming `assets/` then recreating
+- [x] Given `docs/doc.md` open with `/assets/img/a.png`, renaming `assets/` then recreating
       `assets/img/a.png` reloads the page within 3 s, and writes in the renamed directory send
       nothing.
-- [ ] Given two pages in one directory, closing one keeps the directory watched; closing both keeps
+- [x] Given two pages in one directory, closing one keeps the directory watched; closing both keeps
       it watched for 30 s, then releases it.
-- [ ] Given two sockets on one page, closing one sends nothing on the other.
-- [ ] Given a connection that stops answering pings, its subscriptions are dropped.
-- [ ] Given `page` not an existing markdown file, the handshake is refused; given a foreign
+- [x] Given two sockets on one page, closing one sends nothing on the other.
+- [x] Given a connection that stops answering pings, its subscriptions are dropped.
+- [x] Given `page` not an existing markdown file, the handshake is refused; given a foreign
       `Origin`, it is refused the same way whether the page exists or not.
-- [ ] Given `res` values outside the root or holding `\`, nothing outside the root is watched.
-- [ ] Given 20 resource directories, the page's and 9 of them are watched; given 100 directories
+- [x] Given `res` values outside the root or holding `\`, nothing outside the root is watched.
+- [x] Given 20 resource directories, the page's and 9 of them are watched; given 100 directories
       counted, a page in a new directory watches nothing new and still renders, and a page joining a
       counted directory follows it.
-- [ ] Given an unwatchable directory, the page is served and the server keeps running.
-- [ ] Subscribing happens before the hash check, for every page on a directory, not only the first.
-- [ ] `grip-live-diff docs` and `grip-live-diff docs/` serve `docs/` and open `docs/README.md`; a
+- [x] Given an unwatchable directory, the page is served and the server keeps running.
+- [x] Subscribing happens before the hash check, for every page on a directory, not only the first.
+- [x] `grip-live-diff docs` and `grip-live-diff docs/` serve `docs/` and open `docs/README.md`; a
       missing `docs/` exits with an error.
-- [ ] The criteria of 007 still hold.
-- [ ] `go test ./...` green, `GOOS=windows go build ./...` green.
+- [x] The criteria of 007 still hold.
+- [x] `go test ./...` green, `GOOS=windows go build ./...` green.
 
 ## Decisions
 
