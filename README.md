@@ -50,9 +50,8 @@ grip-live-diff             # the same for the current directory
 
 The browser opens on http://localhost:6419. The server serves the file's directory, or the parent of
 the directory given, so its `../` links work; any `.md` under it is served as well, at its own path.
-It watches only what the open pages
-show: their directory and the directories of the images they embed, so a large tree (`node_modules`,
-build output) costs nothing until a page opens in it.
+It watches only what the open pages show: their directory and the directories of the images they
+embed, so a large tree (`node_modules`, build output) costs nothing until a page opens in it.
 
 | Flag                  | Default     | Effect                                                             |
 | --------------------- | ----------- | ------------------------------------------------------------------ |
