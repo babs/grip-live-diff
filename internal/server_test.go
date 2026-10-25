@@ -686,10 +686,15 @@ func TestServeTarget(t *testing.T) {
 
 	root := t.TempDir()
 	docs := filepath.Join(root, "docs")
-	if err := os.MkdirAll(docs, 0o755); err != nil {
-		t.Fatal(err)
+	for _, d := range []string{docs, filepath.Join(root, "bare"), filepath.Join(root, "assets")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.WriteFile(filepath.Join(docs, "README.md"), []byte("# docs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "assets", "a.png"), []byte("png"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	sep := string(filepath.Separator)
@@ -698,8 +703,9 @@ func TestServeTarget(t *testing.T) {
 		fails          bool
 	}{
 		{"", ".", "", false},
-		{docs, docs, "", false},
-		{docs + sep, docs, "", false},
+		{docs, root, "docs/README.md", false},
+		{docs + sep, root, "docs/README.md", false},
+		{filepath.Join(root, "bare"), root, "bare/", false},
 		{filepath.Join(docs, "README.md"), docs, "README.md", false},
 		{filepath.Join(root, "missing.md"), root, "missing.md", false},
 		{filepath.Join(root, "missing") + sep, "", "", true},
@@ -708,5 +714,17 @@ func TestServeTarget(t *testing.T) {
 		if (err != nil) != tc.fails || dir != tc.dir || file != tc.file {
 			t.Errorf("serveTarget(%q): expected (%q, %q, error %v), got (%q, %q, %v)", tc.arg, tc.dir, tc.file, tc.fails, dir, file, err)
 		}
+	}
+
+	// docs/README.md links ../assets/a.png: served, the root being the parent of docs/.
+	dir, _, err := serveTarget(docs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServer("localhost", 6419, false, false, false, NewParser()).newHandler(http.Dir(dir))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/assets/a.png", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected ../assets/a.png from docs/ served, got %d", recorder.Code)
 	}
 }

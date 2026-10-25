@@ -152,8 +152,9 @@ func (s *Server) putLocked(path string, snap *snapshot) {
 	s.snapshots[path] = snap
 }
 
-// serveTarget splits the argument into the directory to serve and the file to open in it,
-// empty for a directory: its README.md, or its listing.
+// serveTarget splits the argument into the directory to serve and the URL path to open in it,
+// empty for the README.md or the listing of the served directory. A directory is served from
+// its parent, so its links leaving it (../) are served too.
 func serveTarget(arg string) (directory, filename string, err error) {
 	if arg == "" {
 		return ".", "", nil
@@ -161,7 +162,16 @@ func serveTarget(arg string) (directory, filename string, err error) {
 	info, statErr := os.Stat(arg)
 	switch {
 	case statErr == nil && info.IsDir():
-		return filepath.Clean(arg), "", nil
+		c := filepath.Clean(arg)
+		parent := filepath.Dir(c)
+		if parent == c || filepath.Base(c) == ".." {
+			return c, "", nil
+		}
+		name := filepath.Base(c)
+		if readme, err := os.Stat(filepath.Join(c, "README.md")); err == nil && !readme.IsDir() {
+			return parent, name + "/README.md", nil
+		}
+		return parent, name + "/", nil
 	case strings.HasSuffix(arg, "/") || strings.HasSuffix(arg, string(filepath.Separator)):
 		return "", "", fmt.Errorf("%s: no such directory", arg)
 	}
