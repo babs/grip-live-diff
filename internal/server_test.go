@@ -707,8 +707,10 @@ func TestServeTarget(t *testing.T) {
 		{docs + sep, root, "docs/README.md", false},
 		{filepath.Join(root, "bare"), root, "bare/", false},
 		{filepath.Join(docs, "README.md"), docs, "README.md", false},
-		{filepath.Join(root, "missing.md"), root, "missing.md", false},
+		{filepath.Join(root, "missing.md"), "", "", true},
+		{filepath.Join(root, "missing"), "", "", true},
 		{filepath.Join(root, "missing") + sep, "", "", true},
+		{filepath.Join(docs, "README.md") + sep, "", "", true},
 	} {
 		dir, file, err := serveTarget(tc.arg)
 		if (err != nil) != tc.fails || dir != tc.dir || file != tc.file {

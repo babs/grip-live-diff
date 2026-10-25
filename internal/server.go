@@ -159,23 +159,24 @@ func serveTarget(arg string) (directory, filename string, err error) {
 	if arg == "" {
 		return ".", "", nil
 	}
-	info, statErr := os.Stat(arg)
-	switch {
-	case statErr == nil && info.IsDir():
-		c := filepath.Clean(arg)
-		parent := filepath.Dir(c)
-		if parent == c || filepath.Base(c) == ".." {
-			return c, "", nil
-		}
-		name := filepath.Base(c)
-		if readme, err := os.Stat(filepath.Join(c, "README.md")); err == nil && !readme.IsDir() {
-			return parent, name + "/README.md", nil
-		}
-		return parent, name + "/", nil
-	case strings.HasSuffix(arg, "/") || strings.HasSuffix(arg, string(filepath.Separator)):
-		return "", "", fmt.Errorf("%s: no such directory", arg)
+	// Any error stops the start: a missing file or directory, or docs/ naming a file.
+	info, err := os.Stat(arg)
+	if err != nil {
+		return "", "", err
 	}
-	return filepath.Dir(arg), filepath.Base(arg), nil
+	if !info.IsDir() {
+		return filepath.Dir(arg), filepath.Base(arg), nil
+	}
+	c := filepath.Clean(arg)
+	parent := filepath.Dir(c)
+	if parent == c || filepath.Base(c) == ".." {
+		return c, "", nil
+	}
+	name := filepath.Base(c)
+	if readme, err := os.Stat(filepath.Join(c, "README.md")); err == nil && !readme.IsDir() {
+		return parent, name + "/README.md", nil
+	}
+	return parent, name + "/", nil
 }
 
 func (s *Server) Serve(file string) error {

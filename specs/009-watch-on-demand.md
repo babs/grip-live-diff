@@ -56,7 +56,8 @@ the last socket to leave releases them.
   nothing. The server pings every 30 s and drops a connection that has not answered for 60 s.
 - A directory argument `docs` serves the parent of `docs/`, as before, and opens `docs/README.md`,
   or the listing of `docs/` when there is none. Links leaving `docs/` (`../assets/a.png`) are
-  served. `docs` and `docs/` behave the same; a missing `docs/` is an error at start.
+  served. `docs` and `docs/` behave the same. A missing argument (`docs`, `docs/`, a file) and a
+  file with a trailing slash (`doc.md/`) are errors at start.
 
 ## Out of scope
 
@@ -107,7 +108,7 @@ the last socket to leave releases them.
 - [x] Subscribing happens before the hash check, for every page on a directory, not only the first.
 - [x] `grip-live-diff docs` and `grip-live-diff docs/` serve the parent of `docs/` and open
       `docs/README.md`, or the listing of `docs/` when there is none; `../assets/a.png` from
-      `docs/README.md` is served; a missing `docs/` exits with an error.
+      `docs/README.md` is served; a missing `docs`, `docs/` or file exits with an error.
 - [x] The criteria of 007 still hold.
 - [x] `go test ./...` green, `GOOS=windows go build ./...` green.
 
