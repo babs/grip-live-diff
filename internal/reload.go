@@ -195,35 +195,13 @@ func (r *reloader) serveWS(w http.ResponseWriter, req *http.Request) {
 	if r.beforeHashCheck != nil {
 		r.beforeHashCheck()
 	}
-	// The page never writes: a read returns once it went away or missed the pongWait.
-	closed, gone := false, make(chan struct{})
-	//nolint:errcheck
-	conn.SetReadDeadline(time.Now().Add(r.pongWait))
-	conn.SetPongHandler(func(string) error { return conn.SetReadDeadline(time.Now().Add(r.pongWait)) })
+	closed, gone := false, r.keepAlive(conn)
 	go func() {
-		for {
-			if _, _, err := conn.NextReader(); err != nil {
-				break
-			}
-		}
-		close(gone)
+		<-gone
 		r.cond.L.Lock()
 		closed = true
 		r.cond.Broadcast()
 		r.cond.L.Unlock()
-	}()
-	go func() {
-		tick := time.NewTicker(r.pingEvery)
-		defer tick.Stop()
-		for {
-			select {
-			case <-gone:
-				return
-			case <-tick.C:
-				//nolint:errcheck // a dead page is caught by the read deadline
-				conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(r.pingEvery))
-			}
-		}
 	}()
 	r.cond.L.Lock()
 	seen := r.seq
@@ -258,6 +236,37 @@ func (r *reloader) serveWS(w http.ResponseWriter, req *http.Request) {
 		}
 		r.cond.L.Lock()
 	}
+}
+
+// keepAlive pings the page and returns a channel closed once it went away or missed the
+// pongWait. The page never writes, so a read only returns on that.
+func (r *reloader) keepAlive(conn *websocket.Conn) <-chan struct{} {
+	gone := make(chan struct{})
+	//nolint:errcheck
+	conn.SetReadDeadline(time.Now().Add(r.pongWait))
+	conn.SetPongHandler(func(string) error { return conn.SetReadDeadline(time.Now().Add(r.pongWait)) })
+	go func() {
+		for {
+			if _, _, err := conn.NextReader(); err != nil {
+				break
+			}
+		}
+		close(gone)
+	}()
+	go func() {
+		tick := time.NewTicker(r.pingEvery)
+		defer tick.Stop()
+		for {
+			select {
+			case <-gone:
+				return
+			case <-tick.C:
+				//nolint:errcheck // a dead page is caught by the read deadline
+				conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(r.pingEvery))
+			}
+		}
+	}()
+	return gone
 }
 
 // pageMessage is what a burst that changed these URL paths means for page: a reload when
@@ -503,6 +512,8 @@ func (r *reloader) check() {
 		if r.addLocked(d, sub); !sub.watched {
 			continue
 		}
+		// ponytail: every file is broadcast, so a directory back from EMFILE reloads its pages
+		// with no real change; compare mtimes with the add if it ever matters.
 		entries, err := os.ReadDir(p)
 		if err != nil {
 			continue
