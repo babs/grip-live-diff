@@ -90,15 +90,15 @@ type reloader struct {
 
 	// The directories the open pages follow, keyed by URL path. The watcher is only called
 	// under subMu, which the event loop never takes: on Windows an Add waits on the event loop.
-	subMu     sync.Mutex
-	watcher   *fsnotify.Watcher // nil until watch
-	root      string
+	subMu        sync.Mutex
+	watcher      *fsnotify.Watcher // nil until watch
+	root         string
 	subs         map[string]*subscription
 	nWatched     int // entries with watched set
 	capLogged    bool
 	polledLogged bool
-	warned    map[string]struct{} // pages logged for naming too many directories
-	stop      chan struct{}
+	warned       map[string]struct{} // pages logged for naming too many directories
+	stop         chan struct{}
 
 	releaseAfter    time.Duration
 	checkEvery      time.Duration
