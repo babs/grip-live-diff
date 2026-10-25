@@ -28,6 +28,9 @@ import (
 
 const defaultHTMLTitle = "grip-live-diff - markdown preview"
 
+// markdownPath is what the server renders as a document.
+var markdownPath = regexp.MustCompile(`(?i)\.md$`)
+
 // staticPrefix serves the embedded assets; the reload script skips it when listing resources.
 const staticPrefix = "/static/"
 
@@ -149,15 +152,44 @@ func (s *Server) putLocked(path string, snap *snapshot) {
 	s.snapshots[path] = snap
 }
 
+// serveTarget splits the argument into the directory to serve and the URL path to open in it,
+// empty for the README.md or the listing of the served directory. A directory is served from
+// its parent, so its links leaving it (../) are served too.
+func serveTarget(arg string) (directory, filename string, err error) {
+	if arg == "" {
+		return ".", "", nil
+	}
+	// Any error stops the start: a missing file or directory, or docs/ naming a file.
+	info, err := os.Stat(arg)
+	if err != nil {
+		return "", "", err
+	}
+	if !info.IsDir() {
+		return filepath.Dir(arg), filepath.Base(arg), nil
+	}
+	c := filepath.Clean(arg)
+	parent := filepath.Dir(c)
+	if parent == c || filepath.Base(c) == ".." {
+		return c, "", nil
+	}
+	name := filepath.Base(c)
+	if readme, err := os.Stat(filepath.Join(c, "README.md")); err == nil && !readme.IsDir() {
+		return parent, name + "/README.md", nil
+	}
+	return parent, name + "/", nil
+}
+
 func (s *Server) Serve(file string) error {
-	directory := path.Dir(file)
-	filename := path.Base(file)
+	directory, filename, err := serveTarget(file)
+	if err != nil {
+		return err
+	}
 
 	dir := http.Dir(directory)
 	handler := s.newHandler(dir)
 
 	addr := fmt.Sprintf("http://%s:%d/", s.host, s.port)
-	if file == "" {
+	if filename == "" {
 		// If README.md exists then open README.md at beginning
 		readme := "README.md"
 		f, err := dir.Open(readme)
@@ -208,7 +240,7 @@ func (s *Server) newHandler(dir http.Dir) http.Handler {
 		mux.HandleFunc(reloadEndpoint, s.reload.serveWS)
 	}
 
-	regex := regexp.MustCompile(`(?i)\.md$`)
+	regex := markdownPath
 	mux.HandleFunc("/__baseline", func(w http.ResponseWriter, r *http.Request) {
 		s.handleResetBaseline(w, r, dir, regex)
 	})

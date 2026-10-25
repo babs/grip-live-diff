@@ -680,3 +680,53 @@ func TestFaviconIsServedAtTheRootForTheDirectoryListing(t *testing.T) {
 		t.Fatalf("Content-Type %q, want an icon type", ct)
 	}
 }
+
+func TestServeTarget(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	docs := filepath.Join(root, "docs")
+	for _, d := range []string{docs, filepath.Join(root, "bare"), filepath.Join(root, "assets")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(docs, "README.md"), []byte("# docs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "assets", "a.png"), []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sep := string(filepath.Separator)
+	for _, tc := range []struct {
+		arg, dir, file string
+		fails          bool
+	}{
+		{"", ".", "", false},
+		{docs, root, "docs/README.md", false},
+		{docs + sep, root, "docs/README.md", false},
+		{filepath.Join(root, "bare"), root, "bare/", false},
+		{filepath.Join(docs, "README.md"), docs, "README.md", false},
+		{filepath.Join(root, "missing.md"), "", "", true},
+		{filepath.Join(root, "missing"), "", "", true},
+		{filepath.Join(root, "missing") + sep, "", "", true},
+		{filepath.Join(docs, "README.md") + sep, "", "", true},
+	} {
+		dir, file, err := serveTarget(tc.arg)
+		if (err != nil) != tc.fails || dir != tc.dir || file != tc.file {
+			t.Errorf("serveTarget(%q): expected (%q, %q, error %v), got (%q, %q, %v)", tc.arg, tc.dir, tc.file, tc.fails, dir, file, err)
+		}
+	}
+
+	// docs/README.md links ../assets/a.png: served, the root being the parent of docs/.
+	dir, _, err := serveTarget(docs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServer("localhost", 6419, false, false, false, NewParser()).newHandler(http.Dir(dir))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/assets/a.png", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected ../assets/a.png from docs/ served, got %d", recorder.Code)
+	}
+}
