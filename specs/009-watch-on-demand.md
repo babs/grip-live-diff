@@ -1,6 +1,6 @@
 # 009 — Watch on demand
 
-**Status**: in review
+**Status**: shipped
 **Requested by**: DuxLocutus
 **Date**: 2026-10-22
 
@@ -99,13 +99,13 @@ the last socket to leave releases them.
 - [x] Given 20 resource directories, the page's and 9 of them are watched; given 100 watched
       directories, a page in a new existing directory watches nothing new and still renders, and a
       page joining a watched directory follows it.
-- [ ] Given 100 sockets naming only missing directories, a page in an existing directory still
+- [x] Given 100 sockets naming only missing directories, a page in an existing directory still
       reloads; past 1,000 missing directories, a new one is not followed.
-- [ ] Given 100 watched directories, a missing directory that appears stays polled, then is watched
+- [x] Given 100 watched directories, a missing directory that appears stays polled, then is watched
       once a watched one is released.
 - [x] Given an unwatchable directory, the page is served and the server keeps running.
 - [x] Subscribing happens before the hash check, for every page on a directory, not only the first.
-- [ ] `grip-live-diff docs` and `grip-live-diff docs/` serve the parent of `docs/` and open
+- [x] `grip-live-diff docs` and `grip-live-diff docs/` serve the parent of `docs/` and open
       `docs/README.md`, or the listing of `docs/` when there is none; `../assets/a.png` from
       `docs/README.md` is served; a missing `docs/` exits with an error.
 - [x] The criteria of 007 still hold.
