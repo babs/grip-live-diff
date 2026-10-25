@@ -74,6 +74,7 @@ const (
 	// Security: the server listens on every interface, any client names directories.
 	maxDirsPerPage = 10
 	maxWatchedDirs = 100
+	maxPolledDirs  = 1000 // missing: a stat per check, no descriptor
 )
 
 type reloader struct {
@@ -92,8 +93,10 @@ type reloader struct {
 	subMu     sync.Mutex
 	watcher   *fsnotify.Watcher // nil until watch
 	root      string
-	subs      map[string]*subscription
-	capLogged bool
+	subs         map[string]*subscription
+	nWatched     int // entries with watched set
+	capLogged    bool
+	polledLogged bool
 	warned    map[string]struct{} // pages logged for naming too many directories
 	stop      chan struct{}
 
@@ -102,6 +105,7 @@ type reloader struct {
 	pingEvery       time.Duration
 	pongWait        time.Duration
 	maxDirs         int
+	maxPolled       int
 	beforeHashCheck func() // tests only
 }
 
@@ -129,6 +133,7 @@ func newReloader() *reloader {
 		pingEvery:    pingEvery,
 		pongWait:     pongWait,
 		maxDirs:      maxWatchedDirs,
+		maxPolled:    maxPolledDirs,
 	}
 }
 
@@ -378,11 +383,7 @@ func (r *reloader) subscribe(dirs []string) []string {
 	for _, d := range dirs {
 		sub, ok := r.subs[d]
 		if !ok {
-			if len(r.subs) >= r.maxDirs {
-				if !r.capLogged {
-					r.capLogged = true
-					log.Printf("watch: %d directories followed already, %s and the next ones not watched", r.maxDirs, d)
-				}
+			if !r.admit(d) {
 				continue
 			}
 			sub = &subscription{}
@@ -397,6 +398,30 @@ func (r *reloader) subscribe(dirs []string) []string {
 		counted = append(counted, d)
 	}
 	return counted
+}
+
+// admit tells whether a new directory fits its cap: an existing one counts against the
+// watched ones, a missing one against the polled ones, so missing directories named by one
+// client do not stop the other pages from reloading.
+func (r *reloader) admit(d string) bool {
+	if info, err := os.Stat(r.fsPath(d)); err == nil && info.IsDir() {
+		if r.nWatched < r.maxDirs {
+			return true
+		}
+		if !r.capLogged {
+			r.capLogged = true
+			log.Printf("watch: %d directories followed already, %s and the next ones not watched", r.maxDirs, d)
+		}
+		return false
+	}
+	if len(r.subs)-r.nWatched < r.maxPolled {
+		return true
+	}
+	if !r.polledLogged {
+		r.polledLogged = true
+		log.Printf("watch: %d missing directories followed already, %s and the next ones not followed", r.maxPolled, d)
+	}
+	return false
 }
 
 // unsubscribe drops one follower of each directory; the last one starts the release delay.
@@ -427,10 +452,13 @@ func (r *reloader) release(d string, sub *subscription, timer **time.Timer) {
 		return
 	}
 	delete(r.subs, d)
-	r.capLogged = false
 	if sub.watched {
 		//nolint:errcheck
 		r.watcher.Remove(r.fsPath(d))
+		r.nWatched--
+		r.capLogged = false
+	} else {
+		r.polledLogged = false
 	}
 }
 
@@ -470,6 +498,7 @@ func (r *reloader) check() {
 			//nolint:errcheck
 			r.watcher.Remove(p)
 			sub.watched, sub.info = false, nil
+			r.nWatched--
 		}
 		if r.addLocked(d, sub); !sub.watched {
 			continue
@@ -486,12 +515,12 @@ func (r *reloader) check() {
 	}
 }
 
-// addLocked watches d if it exists. A failed Add is removed, which closes what kqueue opened;
-// out of descriptors, the next check tries again.
+// addLocked watches d if it exists and a slot is free; otherwise it stays polled. A failed Add
+// is removed, which closes what kqueue opened; out of descriptors, the next check tries again.
 func (r *reloader) addLocked(d string, sub *subscription) {
 	p := r.fsPath(d)
 	info, err := os.Stat(p)
-	if err != nil || !info.IsDir() {
+	if err != nil || !info.IsDir() || r.nWatched >= r.maxDirs {
 		return
 	}
 	if err := r.watcher.Add(p); err != nil {
@@ -509,6 +538,7 @@ func (r *reloader) addLocked(d string, sub *subscription) {
 		return
 	}
 	sub.watched, sub.info = true, info
+	r.nWatched++
 }
 
 func (r *reloader) fsPath(d string) string {

@@ -337,6 +337,20 @@ func watchedReloader(t *testing.T, dir string) *reloader {
 		t.Fatal(err)
 	}
 	t.Cleanup(r.close)
+	// Runs before close: every add and remove kept the count of watched entries.
+	t.Cleanup(func() {
+		r.subMu.Lock()
+		defer r.subMu.Unlock()
+		n := 0
+		for _, sub := range r.subs {
+			if sub.watched {
+				n++
+			}
+		}
+		if n != r.nWatched {
+			t.Errorf("expected nWatched %d, got %d", n, r.nWatched)
+		}
+	})
 	return r
 }
 
@@ -735,6 +749,9 @@ func TestGlobalDirectoryCap(t *testing.T) {
 	logs := captureLog(t)
 	dir := t.TempDir()
 	writeFile(t, dir, "new/doc.md", "# doc\n")
+	for _, d := range []string{"a", "b", "c"} {
+		writeFile(t, dir, d+"/x", "x")
+	}
 	r := watchedReloader(t, dir)
 	r.maxDirs = 3
 	r.subscribe([]string{"/a", "/b", "/c"})
@@ -750,6 +767,54 @@ func TestGlobalDirectoryCap(t *testing.T) {
 		t.Fatalf("expected the cap logged once for two pages, got %q", logs.String())
 	}
 	expectNoMessage(t, conn, "a page over the cap")
+}
+
+func TestMissingDirectoriesDoNotFillTheCap(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "sub/doc.md", "# doc\n")
+	r := watchedReloader(t, dir)
+	r.maxDirs = 2
+	r.subscribe([]string{"/m1", "/m2", "/m3", "/m4", "/m5"})
+	srv := serve(t, r)
+
+	conn := openPage(t, r, srv, "/sub/doc.md")
+	if !isWatched(r, "/sub") {
+		t.Fatal("expected /sub watched, missing directories counted apart")
+	}
+	writeFile(t, dir, "sub/doc.md", "# doc 2\n")
+	expectMessage(t, conn, msgReload, "a page next to five missing directories")
+}
+
+func TestPolledDirectoryCap(t *testing.T) {
+	logs := captureLog(t)
+	r := watchedReloader(t, t.TempDir())
+	r.maxPolled = 3
+
+	if counted := r.subscribe([]string{"/m1", "/m2", "/m3", "/m4", "/m5"}); len(counted) != 3 {
+		t.Fatalf("expected 3 missing directories followed, got %v", counted)
+	}
+	if n := strings.Count(logs.String(), "missing directories followed already"); n != 1 {
+		t.Fatalf("expected the polled cap logged once, got %q", logs.String())
+	}
+}
+
+// A missing directory that appears while the watched cap is reached stays polled, and is
+// watched once a slot frees.
+func TestAppearingDirectoryWaitsForASlot(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "e/x", "x")
+	r := watchedReloader(t, dir)
+	r.maxDirs = 1
+
+	held := r.subscribe([]string{"/e"})
+	r.subscribe([]string{"/img"})
+	writeFile(t, dir, "img/a.png", "a")
+	time.Sleep(3 * testCheckEvery)
+	if isWatched(r, "/img") {
+		t.Fatal("expected /img polled while the cap is reached")
+	}
+	r.unsubscribe(held)
+	eventually(t, "/img watched once /e is released", func() bool { return isWatched(r, "/img") })
 }
 
 // A page over the cap still renders and reloads for what is counted; leaving, it does not
