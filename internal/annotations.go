@@ -227,6 +227,22 @@ func sameOrigin(r *http.Request) bool {
 	return err == nil && u.Host == r.Host
 }
 
+// decodeJSONBody decodes exactly one JSON value of at most limit bytes: Decode alone stops
+// after the first value and never reads far enough to hit the cap.
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, limit int64, v any) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
+	if err := dec.Decode(v); err != nil {
+		return fmt.Errorf("decode body: %w", err)
+	}
+	switch err := dec.Decode(&struct{}{}); {
+	case errors.Is(err, io.EOF):
+		return nil
+	case err != nil:
+		return fmt.Errorf("decode body: %w", err)
+	}
+	return errors.New("decode body: more than one JSON value")
+}
+
 // emptySidecar has a non-nil list, so it encodes as [] and not null. The name is folded to
 // one line: it is quoted inside the header comment, where a newline would end the comment.
 func emptySidecar(target string) sidecar {
@@ -479,7 +495,7 @@ func (s *Server) handleAnnotations(w http.ResponseWriter, r *http.Request, dir h
 		var body struct {
 			Annotations []annotation `json:"annotations"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxSidecarBytes)).Decode(&body); err != nil {
+		if err := decodeJSONBody(w, r, maxSidecarBytes, &body); err != nil {
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return
 		}

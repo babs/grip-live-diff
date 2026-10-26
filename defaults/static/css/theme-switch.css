@@ -79,6 +79,42 @@
   color: #656d76;
 }
 
+/* The UA sheet centres a popover; this one drops under the toolbar's right edge. */
+.settings-menu {
+  inset: auto;
+  top: 60px;
+  right: 20px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f2328;
+  font-size: 14px;
+}
+
+.settings-menu fieldset {
+  border: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.settings-menu legend {
+  font-weight: 600;
+  padding: 0;
+}
+
+.settings-menu label {
+  display: block;
+  cursor: pointer;
+}
+
+[data-theme="dark"] .settings-menu {
+  border-color: #484f58;
+  background: #161b22;
+  color: #e6edf3;
+}
+
 @media print {
   .toolbar {
     display: none;

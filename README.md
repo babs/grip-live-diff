@@ -165,22 +165,24 @@ selection is dropped, the box saved or closed; then it runs. Marks need the CSS 
 
 ## Toolbar
 
-| Button | Does                                                                              |
-| ------ | --------------------------------------------------------------------------------- |
-| house  | Back to the index, the listing of the served directory                            |
-| `↔`    | Page width: **normal** (GitHub's 896px), **wide** (1400px), **full** (no limit)   |
-| `±`    | Diff on/off, see above                                                            |
-| theme  | Light or dark                                                                     |
-| pencil | Annotation capture on/off, see above                                              |
+| Button | Does                                                                                     |
+| ------ | ---------------------------------------------------------------------------------------- |
+| house  | Back to the index, the listing of the served directory                                   |
+| `±`    | Diff on/off, see above                                                                   |
+| gear   | Settings: width **normal** (896px), **wide** (1400px), **full**; theme system/light/dark |
+| pencil | Annotation capture on/off, see above                                                     |
 
 Keys: `d` toggles the diff, `1` `2` `3` pick the reference, `n` `p` walk the annotations, `a`
 annotates the selection, `A` comments on the whole document, `Esc` closes a comment box, `Ctrl-Enter`
 (`Cmd-Enter` on macOS) saves it.
 
-Width, theme, minimap visibility, annotation capture and the last diff reference are kept in
-`localStorage`, so they
-survive restarts. The open/closed state of `<details>` blocks and the scroll position survive a
-reload, per tab.
+Width and theme are kept in `settings.json` under the user config directory
+(`~/.config/grip-live-diff/` on Linux, `~/Library/Application Support/grip-live-diff/` on macOS,
+`%AppData%\grip-live-diff\` on Windows), shared by every instance whatever its port; a change
+applies at once to its page, other open pages pick it up on their next load. Minimap visibility,
+annotation capture and the last diff reference are kept in `localStorage`, so they survive
+restarts. The open/closed state of `<details>` blocks and the scroll position survive a reload,
+per tab.
 
 ## Rendering
 
@@ -229,7 +231,7 @@ release matrix and the checksum file; the `Build and release` workflow runs it o
   GitHub's API.
 - [go-grip](https://github.com/chrishrb/go-grip) by Christoph Herb: the offline Go rewrite this
   project forks. Rendering, theming, mermaid, math and emoji support are his work.
-- grip-live-diff: the live diff, minimap, inline annotations for an agent, width toggle, git `HEAD`
-  comparison and self-update.
+- grip-live-diff: the live diff, minimap, inline annotations for an agent, settings menu (width,
+  theme), git `HEAD` comparison and self-update.
 
 MIT, see [LICENSE](LICENSE).

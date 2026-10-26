@@ -33,7 +33,7 @@ func newDiffFixture(t *testing.T, content string) *diffFixture {
 	t.Helper()
 
 	f := &diffFixture{t: t, dir: t.TempDir()}
-	f.handler = NewServer("localhost", 6419, false, false, false, NewParser()).newHandler(http.Dir(f.dir))
+	f.handler = NewServer("localhost", 6419, false, false, false, NewParser(), "").newHandler(http.Dir(f.dir))
 	f.write(content)
 	return f
 }
@@ -51,7 +51,7 @@ func newGitDiffFixture(t *testing.T, content string, commit bool) *diffFixture {
 		f.git("-c", "user.email=grip-live-diff@test", "-c", "user.name=grip-live-diff",
 			"-c", "commit.gpgsign=false", "commit", "-q", "-m", "initial")
 	}
-	f.handler = NewServer("localhost", 6419, false, false, false, NewParser()).newHandler(http.Dir(f.dir))
+	f.handler = NewServer("localhost", 6419, false, false, false, NewParser(), "").newHandler(http.Dir(f.dir))
 	return f
 }
 
@@ -403,7 +403,7 @@ func TestDirectoryListingIgnoresCacheValidators(t *testing.T) {
 		t.Fatalf("write README.md: %v", err)
 	}
 
-	server := NewServer("localhost", 6419, false, false, false, NewParser())
+	server := NewServer("localhost", 6419, false, false, false, NewParser(), "")
 	handler := server.newHandler(http.Dir(tmpDir))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -431,7 +431,7 @@ func TestRegularFileStillSupportsConditionalRequests(t *testing.T) {
 		t.Fatalf("write plain.txt: %v", err)
 	}
 
-	server := NewServer("localhost", 6419, false, false, false, NewParser())
+	server := NewServer("localhost", 6419, false, false, false, NewParser(), "")
 	handler := server.newHandler(http.Dir(tmpDir))
 
 	req := httptest.NewRequest(http.MethodGet, "/plain.txt", nil)
@@ -453,7 +453,7 @@ func TestMarkdownResponsesDisableCaching(t *testing.T) {
 		t.Fatalf("write README.md: %v", err)
 	}
 
-	server := NewServer("localhost", 6419, false, false, false, NewParser())
+	server := NewServer("localhost", 6419, false, false, false, NewParser(), "")
 	handler := server.newHandler(http.Dir(tmpDir))
 
 	req := httptest.NewRequest(http.MethodGet, "/README.md", nil)
@@ -517,7 +517,7 @@ func TestFilenameTitleResponses(t *testing.T) {
 		}
 	}
 
-	server := NewServer("localhost", 6419, false, false, false, NewParser())
+	server := NewServer("localhost", 6419, false, false, false, NewParser(), "")
 	handler := server.newHandler(http.Dir(tmpDir))
 
 	tests := []struct {
@@ -556,7 +556,7 @@ func TestPageTitleIsEscaped(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, name), []byte("# hi\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler := NewServer("localhost", 6419, false, false, false, NewParser()).newHandler(http.Dir(dir))
+	handler := NewServer("localhost", 6419, false, false, false, NewParser(), "").newHandler(http.Dir(dir))
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, (&url.URL{Path: "/" + name}).String(), nil))
@@ -579,7 +579,7 @@ func TestSnapshotsAreBounded(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	s := NewServer("localhost", 6419, false, false, false, NewParser())
+	s := NewServer("localhost", 6419, false, false, false, NewParser(), "")
 	h := s.newHandler(http.Dir(dir))
 	for i := range total {
 		w := httptest.NewRecorder()
@@ -723,7 +723,7 @@ func TestServeTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := NewServer("localhost", 6419, false, false, false, NewParser()).newHandler(http.Dir(dir))
+	handler := NewServer("localhost", 6419, false, false, false, NewParser(), "").newHandler(http.Dir(dir))
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/assets/a.png", nil))
 	if recorder.Code != http.StatusOK {
