@@ -71,8 +71,7 @@ func loadSettings(path string) settings {
 	return st
 }
 
-// saveSettings writes through a temp file in the same directory, so a reader never sees a
-// half-written file.
+// saveSettings replaces the file whole, never in place.
 func saveSettings(path string, st settings) error {
 	if path == "" {
 		return fmt.Errorf("save settings: no user config directory")
@@ -85,11 +84,23 @@ func saveSettings(path string, st settings) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // a config dir, readable like any other
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
-	tmp, err := os.CreateTemp(dir, ".settings-*.json")
-	if err != nil {
-		return fmt.Errorf("save settings: %w", err)
+	if err := replaceFile(path, ".settings-*.json", 0o644, append(data, '\n')); err != nil {
+		return fmt.Errorf("save settings to %s: %w", path, err)
 	}
-	_, err = tmp.Write(append(data, '\n'))
+	return nil
+}
+
+// replaceFile writes data through a temp file named after pattern in path's directory, so a
+// reader never sees a half-written file. CreateTemp makes it 0600, hence the chmod to mode.
+func replaceFile(path, pattern string, mode os.FileMode, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), pattern)
+	if err != nil {
+		return err
+	}
+	_, err = tmp.Write(data)
+	if err == nil {
+		err = tmp.Chmod(mode)
+	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}
@@ -98,9 +109,8 @@ func saveSettings(path string, st settings) error {
 	}
 	if err != nil {
 		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("save settings to %s: %w", path, err)
 	}
-	return nil
+	return err
 }
 
 // handleSettings saves the whole set on PUT and answers with what was saved.

@@ -271,7 +271,7 @@ func (r *reloader) keepAlive(conn *websocket.Conn) <-chan struct{} {
 
 // pageMessage is what a burst that changed these URL paths means for page: a reload when
 // the page or one of its resources moved, which outranks an annotations refresh when only
-// its sidecar or kept revisions did.
+// its sidecar, ready file or kept revisions did.
 func pageMessage(page string, resources []string, changed map[string]struct{}) string {
 	if _, ok := changed[page]; ok {
 		return msgReload
@@ -283,6 +283,9 @@ func pageMessage(page string, resources []string, changed map[string]struct{}) s
 	}
 	base := strings.TrimSuffix(page, path.Ext(page))
 	if _, ok := changed[base+sidecarSuffix]; ok {
+		return msgAnnotations
+	}
+	if _, ok := changed[base+readySuffix]; ok {
 		return msgAnnotations
 	}
 	revisions := base + revisionsSuffix

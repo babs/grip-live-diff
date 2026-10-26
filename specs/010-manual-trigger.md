@@ -134,7 +134,7 @@ file under the user's config directory, shared by every instance whatever its po
 
 ### Phase 2 — Mode and ready file, server side
 - Work: `trigger` in the sidecar struct, kept across PUTs; header paragraph; `POST` (write) and
-  `DELETE` (cancel) of the ready file on `/__annotations`, same origin and path checks; GET reports
+  `DELETE` (cancel) on `/__annotations/ready?path=`, same origin and path checks; the annotations GET reports
   the ready state (sent / working / gone, liveness by signal 0 on Unix, `OpenProcess` on Windows);
   switching to auto removes the file; `pageMessage` routes the ready file to `annotations`.
 - **Covers**: AC1, AC2, AC3, AC4, AC5, AC6, AC7, AC9, AC10, AC12, AC13, AC19, AC20, AC21
@@ -170,6 +170,8 @@ file under the user's config directory, shared by every instance whatever its po
 - PID claim instead of a timeout: the page tells a dead agent from a slow one, no clock to tune.
 - Claim under the sidecar flock rather than a lock of its own: one lock for the agent to know.
 - An unparsable ready file reads as sent: the file is the agent's to write too.
+- A ready file in auto is stale: every auto save and every mode switch drops it, best effort.
+  A failed removal is logged and does not fail the save, which already stands.
 - Settings on the server, not in `localStorage`: `localStorage` is per port.
 - Settings injected at render rather than fetched: no flash of the wrong theme or width.
 - `theme: system` as default: today an unset theme follows the browser.

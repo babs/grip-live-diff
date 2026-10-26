@@ -122,6 +122,12 @@ func TestPageMessage(t *testing.T) {
 		{"/doc.md", []string{"/sub/doc.md", "/sub/doc" + sidecarSuffix}, ""},
 		{"/doc.md", []string{"/doc" + revisionsSuffix + "x"}, ""},
 		{"/my doc.md", []string{"/my doc" + sidecarSuffix}, msgAnnotations},
+		// The ready file appearing or going: refresh, no reload.
+		{"/doc.md", []string{"/doc" + readySuffix}, msgAnnotations},
+		{"/sub/doc.md", []string{"/sub/doc" + readySuffix}, msgAnnotations},
+		{"/doc.md", []string{"/doc" + readySuffix, "/doc.md"}, msgReload},
+		{"/doc.md", []string{"/other" + readySuffix, "/sub/doc" + readySuffix}, ""},
+		{"/doc.md", []string{"/.doc" + readySuffix + "-123456", "/doc" + readySuffix + "x"}, ""},
 	} {
 		changed := make(map[string]struct{})
 		for _, name := range tc.changed {

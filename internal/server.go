@@ -250,6 +250,9 @@ func (s *Server) newHandler(dir http.Dir) http.Handler {
 	mux.HandleFunc("/__annotations", func(w http.ResponseWriter, r *http.Request) {
 		s.handleAnnotations(w, r, dir, regex)
 	})
+	mux.HandleFunc("/__annotations/ready", func(w http.ResponseWriter, r *http.Request) {
+		s.handleReady(w, r, dir, regex)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if regex.MatchString(r.URL.Path) {
 			isFile, err := isRegularFile(dir, r.URL.Path)

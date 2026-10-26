@@ -44,12 +44,21 @@ const sidecarHeader = `// grip-live-diff annotations for %s. JSON5: comments and
 //   - answer by appending { by: "agent", at: <RFC 3339>, text } to thread; once the request is
 //     handled, set status: "done" as well, or delete the entry;
 //   - a reader message after yours reopens the entry (status is dropped): handle it again;
-//   - never edit or remove reader messages, id or file_hash;
+//   - never edit or remove reader messages, id, file_hash or trigger;
 //   - if you rewrite an annotated passage, put the new wording in exact so the mark follows it;
 //   - exact / prefix / suffix quote the rendered text; lines is a hint into the markdown source,
 //     recomputed on every save from the preview, so trust exact first; exact: null = whole document;
 //   - revisions maps a file_hash to a copy of the file as it was when those entries were written;
 //     read one only for an entry whose exact is gone from the file. Managed by the preview.
+//
+// trigger is the reader's: "auto" (absent too) or "manual". In manual, a change to this file is
+// not a request: wait for the ready file beside it, this file's name with .json5 -> .ready (stat
+// it, or watch the directory). Take your PID before the lock: the one of your long-lived
+// process, not of the shell running your command (in Claude Code, that shell's $PPID, read
+// outside flock -c, where $PPID is flock's). Then, under the flock of this file, read the ready
+// file: absent -> the batch was cancelled, nothing to do, do not create it; pid null -> set pid
+// to your PID and claimed_at, write it back; pid set -> another agent holds the batch, leave it.
+// Handle every open entry, then delete the ready file, last.
 //
 // Entry: { id, exact, prefix, suffix, lines: [start, end] | null, file_hash, status?: "done",
 //          thread: [{ by: "reader" | "agent", at: <RFC 3339> | null, text }] }
@@ -105,6 +114,8 @@ func upgrade(a annotation) annotation {
 type sidecar struct {
 	Version int    `json:"version"`
 	File    string `json:"file"`
+	// "auto" or "manual", whatever the file holds; set by the browser only.
+	Trigger string `json:"trigger"`
 	// file_hash -> path of the copy, relative to the sidecar's directory. Rebuilt from
 	// disk at every save; what the browser or the agent put there is ignored.
 	Revisions   map[string]string `json:"revisions,omitempty"`
@@ -115,7 +126,8 @@ type sidecar struct {
 // tell a comment written against an older version.
 type annotationsResponse struct {
 	sidecar
-	Hash string `json:"hash"`
+	Hash  string     `json:"hash"`
+	Ready readyState `json:"ready"`
 }
 
 func fileHash(content []byte) string {
@@ -247,7 +259,7 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, limit int64, v any) 
 // one line: it is quoted inside the header comment, where a newline would end the comment.
 func emptySidecar(target string) sidecar {
 	name := strings.Join(strings.Fields(path.Base(target)), " ")
-	return sidecar{Version: sidecarVersion, File: name, Annotations: []annotation{}}
+	return sidecar{Version: sidecarVersion, File: name, Trigger: triggerAuto, Annotations: []annotation{}}
 }
 
 func decodeSidecar(f *os.File, target string) (sidecar, error) {
@@ -266,6 +278,9 @@ func decodeSidecar(f *os.File, target string) (sidecar, error) {
 		return sc, fmt.Errorf("decode %s: %w", f.Name(), err)
 	}
 	sc.Version, sc.File = sidecarVersion, path.Base(target)
+	if sc.Trigger != triggerManual {
+		sc.Trigger = triggerAuto
+	}
 	if sc.Annotations == nil {
 		sc.Annotations = []annotation{}
 	}
@@ -275,58 +290,93 @@ func decodeSidecar(f *os.File, target string) (sidecar, error) {
 	return sc, nil
 }
 
+// A sidecar replaced this often while we wait for its lock is not one an agent edits.
+const lockAttempts = 5
+
+// lockSidecar opens the sidecar at p with flag and locks it. An agent may replace the file
+// (temp + rename) or the preview remove it while we wait: a lock on an inode p no longer names
+// guards nothing, so it opens p again. Without O_CREATE, a sidecar removed meanwhile is
+// os.ErrNotExist, as if it never was.
+func lockSidecar(p string, flag int, exclusive bool) (*os.File, error) {
+	for range lockAttempts {
+		f, err := os.OpenFile(p, flag, 0o644) //nolint:gosec // p is confined to dir by sidecarPath
+		if err != nil {
+			return nil, err
+		}
+		if err := lockFile(f, exclusive); err != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("lock %s: %w", p, err)
+		}
+		held, err := f.Stat()
+		var named os.FileInfo
+		if err == nil {
+			named, err = os.Stat(p)
+		}
+		if err == nil && os.SameFile(held, named) {
+			return f, nil
+		}
+		releaseSidecar(f)
+		// Removed: the next open fails without O_CREATE, or creates the live file.
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("lock %s: replaced %d times while waiting", p, lockAttempts)
+}
+
+func releaseSidecar(f *os.File) {
+	_ = unlockFile(f)
+	_ = f.Close()
+}
+
 // readSidecar returns the annotations of target, an empty list when it has none.
 func readSidecar(dir http.Dir, target string) (sidecar, error) {
-	p := sidecarPath(dir, target)
-	f, err := os.Open(p) //nolint:gosec // p is confined to dir by sidecarPath
+	f, err := lockSidecar(sidecarPath(dir, target), os.O_RDONLY, false)
 	if errors.Is(err, os.ErrNotExist) {
 		return emptySidecar(target), nil
 	}
 	if err != nil {
 		return sidecar{}, err
 	}
-	//nolint:errcheck
-	defer f.Close()
-	if err := lockFile(f, false); err != nil {
-		return sidecar{}, fmt.Errorf("lock %s: %w", p, err)
-	}
-	//nolint:errcheck
-	defer unlockFile(f)
+	defer releaseSidecar(f)
 	return decodeSidecar(f, target)
 }
 
 // writeSidecar replaces the annotations of target with incoming, merged with what is on
-// disk under an exclusive lock. The write is in place, not temp + rename: a rename would
-// swap the inode under an agent waiting on the lock.
-func writeSidecar(dir http.Dir, target string, source []byte, incoming []annotation) (sidecar, error) {
+// disk under an exclusive lock, and sets trigger unless empty; nil incoming keeps the stored
+// list. The write is in place, not temp + rename: a rename would swap the inode under an
+// agent waiting on the lock.
+func writeSidecar(dir http.Dir, target string, source []byte, incoming *[]annotation, trigger string) (sidecar, error) {
 	p := sidecarPath(dir, target)
-	f, err := os.OpenFile(p, os.O_RDWR|os.O_CREATE, 0o644) //nolint:gosec // idem
+	f, err := lockSidecar(p, os.O_RDWR|os.O_CREATE, true)
 	if err != nil {
 		return sidecar{}, err
 	}
-	//nolint:errcheck
-	defer f.Close()
-	if err := lockFile(f, true); err != nil {
-		return sidecar{}, fmt.Errorf("lock %s: %w", p, err)
-	}
-	//nolint:errcheck
-	defer unlockFile(f)
+	defer releaseSidecar(f)
 
 	stored, err := decodeSidecar(f, target)
 	if err != nil {
 		return sidecar{}, err
 	}
-	stored.Annotations = mergeAnnotations(stored.Annotations, incoming, source)
+	switched := trigger != "" && trigger != stored.Trigger
+	if trigger != "" {
+		stored.Trigger = trigger
+	}
+	if incoming != nil {
+		stored.Annotations = mergeAnnotations(stored.Annotations, *incoming, source)
+	}
 	stored.Revisions, err = syncRevisions(revisionsDir(dir, target), stored.Annotations, source, fileHash(source))
 	if err != nil {
 		return sidecar{}, err
 	}
 
-	if len(stored.Annotations) == 0 {
+	// A manual sidecar holds the mode even with no entry.
+	if len(stored.Annotations) == 0 && stored.Trigger == triggerAuto {
 		// Still under the lock, so nobody reads a sidecar that is about to vanish.
 		if err := os.Remove(p); err != nil {
 			return sidecar{}, err
 		}
+		dropStaleReady(dir, target, true)
 		return stored, nil
 	}
 
@@ -341,7 +391,23 @@ func writeSidecar(dir http.Dir, target string, source []byte, incoming []annotat
 	if _, err := f.WriteAt(append([]byte(header), append(data, '\n')...), 0); err != nil {
 		return sidecar{}, err
 	}
-	return stored, f.Sync()
+	if err := f.Sync(); err != nil {
+		return sidecar{}, err
+	}
+	dropStaleReady(dir, target, stored.Trigger == triggerAuto || switched)
+	return stored, nil
+}
+
+// dropStaleReady runs once the sidecar is saved, so a failed save keeps the batch. A ready file
+// in auto is stale: the agent acts on the save anyway, and kept, it would fire as a batch nobody
+// sent on the next switch to manual. Best effort: the save stands, the next one retries.
+func dropStaleReady(dir http.Dir, target string, stale bool) {
+	if !stale {
+		return
+	}
+	if err := removeReady(readyPath(dir, target)); err != nil {
+		log.Println(err)
+	}
 }
 
 // mergeAnnotations applies the browser's view of the list to what is on disk. The browser
@@ -470,7 +536,7 @@ func foldMarkdown(s string) (string, []int) {
 }
 
 // handleAnnotations serves the sidecar of a markdown file: GET returns it (empty when
-// absent) with the current file hash, PUT replaces its list.
+// absent) with the current file hash and the ready state, PUT replaces its list and mode.
 func (s *Server) handleAnnotations(w http.ResponseWriter, r *http.Request, dir http.Dir, regex *regexp.Regexp) {
 	if !sameOrigin(r) {
 		http.Error(w, "cross-origin request refused", http.StatusForbidden)
@@ -493,13 +559,20 @@ func (s *Server) handleAnnotations(w http.ResponseWriter, r *http.Request, dir h
 		sc, err = readSidecar(dir, target)
 	case http.MethodPut:
 		var body struct {
-			Annotations []annotation `json:"annotations"`
+			// Absent keeps the list: a mode switch alone must not empty it.
+			Annotations *[]annotation `json:"annotations"`
+			Trigger     *string       `json:"trigger"`
 		}
-		if err := decodeJSONBody(w, r, maxSidecarBytes, &body); err != nil {
+		if err := decodeJSONBody(w, r, maxSidecarBytes, &body); err != nil ||
+			(body.Trigger != nil && *body.Trigger != triggerAuto && *body.Trigger != triggerManual) {
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return
 		}
-		sc, err = writeSidecar(dir, target, content, body.Annotations)
+		var trigger string
+		if body.Trigger != nil {
+			trigger = *body.Trigger
+		}
+		sc, err = writeSidecar(dir, target, content, body.Annotations, trigger)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -512,7 +585,8 @@ func (s *Server) handleAnnotations(w http.ResponseWriter, r *http.Request, dir h
 
 	setNoCacheHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(annotationsResponse{sidecar: sc, Hash: fileHash(content)}); err != nil {
+	resp := annotationsResponse{sidecar: sc, Hash: fileHash(content), Ready: readReady(readyPath(dir, target))}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Println(err)
 	}
 }
