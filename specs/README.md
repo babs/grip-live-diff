@@ -12,3 +12,4 @@
 | 008 | [Reload held while annotating](008-reload-held-while-annotating.md) | shipped |
 | 009 | [Watch on demand](009-watch-on-demand.md) | shipped |
 | 010 | [Manual trigger and settings](010-manual-trigger.md) | shipped |
+| 012 | [Annotations on a repeated passage](012-annotation-repeated-passage.md) | draft |
