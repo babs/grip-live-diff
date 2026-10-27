@@ -82,6 +82,10 @@
             <label><input type="radio" name="settings-theme" value="light" /> light</label>
             <label><input type="radio" name="settings-theme" value="dark" /> dark</label>
           </fieldset>
+          <fieldset>
+            <legend>Reload</legend>
+            <label><input type="checkbox" name="settings-hold_reload" /> Hold reload while sent</label>
+          </fieldset>
         </div>
         <button id="annotate-toggle" class="theme-toggle annotate-toggle" title="Annotate: select text to comment on it" aria-label="Toggle annotation capture" aria-pressed="false">
           <span class="theme-toggle-icon">
@@ -116,6 +120,11 @@
             </svg>
           </span>
         </button>
+        <button id="annotation-mode" class="theme-toggle trigger-button" aria-label="Manual trigger" aria-pressed="false" hidden></button>
+        <button id="annotation-go" class="theme-toggle trigger-button trigger-go" hidden>Go</button>
+        <button id="annotation-cancel" class="theme-toggle trigger-cancel" title="Cancel the batch: remove the ready file" aria-label="Cancel the batch" hidden>✕</button>
+        <span id="annotation-trigger-state" class="visually-hidden"></span>
+        <span id="annotation-trigger-error" class="trigger-error" role="status"></span>
       </div>
       {{if .DiffMode}}
       <div class="toolbar-row diff-status" data-diff-mode="{{ .DiffMode }}">

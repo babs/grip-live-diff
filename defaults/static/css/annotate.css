@@ -32,6 +32,50 @@
   cursor: default;
 }
 
+/* Text, not an icon: as wide as the label. */
+.trigger-button {
+  width: auto;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.trigger-button,
+.trigger-cancel {
+  color: #656d76;
+}
+/* .theme-toggle: outranks the [data-theme] colour rules below. */
+.theme-toggle.trigger-button[aria-pressed="true"],
+.theme-toggle.trigger-go:not(:disabled) {
+  opacity: 1;
+  border-color: #f57c00;
+  color: #f57c00;
+}
+.trigger-go:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+/* Sent or worked on, Go is disabled but its label is the state: kept readable. */
+.trigger-go[data-state="sent"],
+.trigger-go[data-state="working"],
+.trigger-go[data-state="gone"] {
+  opacity: 1;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.trigger-error {
+  font-size: 12px;
+  color: #cf222e;
+}
+.trigger-error:empty {
+  display: none;
+}
+
 .annotations-counter {
   font-size: 12px;
   color: #656d76;
@@ -213,8 +257,13 @@
 
 @media (prefers-color-scheme: dark) {
   .annotations-counter,
-  .annot-meta {
+  .annot-meta,
+  .trigger-button,
+  .trigger-cancel {
     color: #8b949e;
+  }
+  .trigger-error {
+    color: #f85149;
   }
   .annot-tip,
   .annot-box {
@@ -245,8 +294,13 @@
   color: #656d76;
 }
 [data-theme="dark"] .annotations-counter,
-[data-theme="dark"] .annot-meta {
+[data-theme="dark"] .annot-meta,
+[data-theme="dark"] .trigger-button,
+[data-theme="dark"] .trigger-cancel {
   color: #8b949e;
+}
+[data-theme="dark"] .trigger-error {
+  color: #f85149;
 }
 [data-theme="dark"] .annot-tip,
 [data-theme="dark"] .annot-box {
@@ -260,8 +314,13 @@
   border-color: #484f58;
 }
 [data-theme="light"] .annotations-counter,
-[data-theme="light"] .annot-meta {
+[data-theme="light"] .annot-meta,
+[data-theme="light"] .trigger-button,
+[data-theme="light"] .trigger-cancel {
   color: #656d76;
+}
+[data-theme="light"] .trigger-error {
+  color: #cf222e;
 }
 [data-theme="light"] .annot-tip,
 [data-theme="light"] .annot-box {

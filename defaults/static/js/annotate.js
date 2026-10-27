@@ -4,6 +4,7 @@
   // pathname is already percent-encoded: decode first or "my doc.md" reaches the server
   // as "my%20doc.md".
   var ENDPOINT = "/__annotations?path=" + encodeURIComponent(decodeURIComponent(location.pathname));
+  var READY = ENDPOINT.replace("/__annotations?", "/__annotations/ready?");
   // Text that is not the document: diff deletions, diagrams and formulas (their rendered
   // text does not exist in the source), the code-block copy buttons.
   var SKIP = "del.gg-del, .mermaid, .math, mjx-container, script, style, button, [hidden]";
@@ -11,8 +12,17 @@
   var article, model, entries = [], doc = { annotations: [] }, pending = null, current = null, hovered = null;
   var bubble, tip, tipThread, box, textarea, meta, hitFrame;
   // A reload offered while the reader is mid-selection (pointer down), has the bubble to
-  // click or a box open is held, then run by release() once none of that is left.
+  // click, a box open, or (hold_reload on) a batch sent is held, then run by release() once
+  // none of that is left.
   var pointerDown = false, held = false, saving = false, wordSelect = false;
+  // A dead agent changes nothing on disk: while one works, its liveness is polled.
+  var pollTimer = 0, polling = false, lastTrigger = null;
+  // Requests are numbered: an answer older than the one last applied is dropped, or a GET
+  // sent before a cancel could bring "working" back.
+  var asked = 0, applied = 0;
+  // A failed save stays in the box until the next save or the box closes: a refresh redraws
+  // the meta line.
+  var saveError = "";
 
   var supported = "highlights" in CSS && typeof Highlight === "function";
 
@@ -172,15 +182,158 @@
     });
     // Entries are rebuilt on every draw: the open one is re-found by id or it would fall
     // out of the navigation order.
+    var had = current;
     if (current) current = byId(current.a.id);
+    // Every doc swap lands here: an entry deleted under its open box closes it, as refresh() does.
+    if (had && !current && box.matches(":popover-open")) return closeBox();
     var nav = document.querySelector(".annotations-nav");
-    if (nav) nav.hidden = !(doc.annotations.length || wanted());
+    if (nav) nav.hidden = !(doc.annotations.length || wanted() || manual());
     var counter = document.getElementById("annotation-counter");
     if (counter) {
       var at = current ? ordered().indexOf(current) + 1 : 0;
       counter.textContent = entries.length ? (at ? at + "/" : "") + entries.length : "";
     }
     drawList();
+    drawTrigger();
+  }
+
+  function manual() {
+    return doc.trigger === "manual";
+  }
+
+  // The batch waits on the agent. A ready file in auto is stale: neither shown nor held for.
+  function queued() {
+    var state = doc.ready && doc.ready.state;
+    return manual() && (state === "sent" || state === "working");
+  }
+
+  function drawTrigger() {
+    var mode = document.getElementById("annotation-mode");
+    if (!mode) return;
+    var go = document.getElementById("annotation-go"), cancel = document.getElementById("annotation-cancel");
+    var ready = doc.ready || { state: "none" }, focused = document.activeElement;
+    // Same rule as the server's: the reader spoke last and the entry is not done.
+    var open = doc.annotations.some(function (a) {
+      return a.status !== "done" && editable(a) >= 0;
+    });
+    mode.hidden = false;
+    mode.textContent = manual() ? "manual" : "auto";
+    mode.setAttribute("aria-pressed", String(manual()));
+    mode.title = manual() ? "Manual: the agent waits for Go. Click to switch to auto" : "Auto: the agent acts on every save. Click to switch to manual";
+    go.hidden = !manual();
+    // Gone too: with nothing open, ✕ is the only way to clear a dead agent's batch.
+    cancel.hidden = !manual() || ready.state === "none";
+    go.setAttribute("data-state", ready.state);
+    go.textContent = { sent: "Sent", working: "Agent working · pid " + ready.pid, gone: "Agent gone · pid " + ready.pid }[ready.state] || "Go";
+    go.disabled = queued() || !open;
+    go.title = queued() ? "The agent has the batch; ✕ cancels it" : !open ? "Nothing to send: no entry waits for the agent" : ready.state === "gone" ? "The agent exited: send the batch again" : "Send every open entry to the agent";
+    var status = document.getElementById("annotation-trigger-state"), label = manual() ? go.textContent : "";
+    if (status.textContent !== label) status.textContent = label;
+    // Live only once the first label is in: a page load must not announce it.
+    if (!status.hasAttribute("aria-live")) status.setAttribute("aria-live", "polite");
+    // The button that had the focus may just have been disabled or hidden: hand it on.
+    if ((focused === go || focused === cancel) && (focused.hidden || focused.disabled)) {
+      var other = focused === go ? cancel : go;
+      (other.hidden || other.disabled ? mode : other).focus();
+    }
+    // An error is about the state it was raised in; a new state makes it stale.
+    var key = manual() + ready.state + open;
+    if (lastTrigger !== null && key !== lastTrigger) triggerError("");
+    lastTrigger = key;
+    if (manual() && ready.state === "working") {
+      if (!pollTimer) pollTimer = setInterval(poll, 5000);
+    } else if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = 0;
+    }
+  }
+
+  function fresh(n) {
+    if (n < applied) return false;
+    applied = n;
+    return true;
+  }
+
+  function get() {
+    return fetch(ENDPOINT).then(function (r) {
+      if (!r.ok) throw new Error("annotations: " + r.status);
+      return r.json();
+    });
+  }
+
+  // Liveness check: only the toolbar is redrawn, so a selection in the list and an open box
+  // are left alone. A changed sidecar is redrawn whole; the box closes only if its entry is gone.
+  function poll() {
+    if (polling) return;
+    polling = true;
+    var n = ++asked;
+    get()
+      .then(function (d) {
+        if (!fresh(n)) return;
+        if (d.trigger !== doc.trigger || JSON.stringify(d.annotations) !== JSON.stringify(doc.annotations)) {
+          doc = d;
+          draw();
+        } else {
+          doc.ready = d.ready;
+          drawTrigger();
+        }
+        release();
+      })
+      .catch(console.error)
+      .finally(function () {
+        polling = false;
+      });
+  }
+
+  // A failed toolbar action says so beside the buttons; the next success clears it.
+  function triggerError(text) {
+    document.getElementById("annotation-trigger-error").textContent = text;
+  }
+
+  function setTrigger(next) {
+    var n = ++asked;
+    fetch(ENDPOINT, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trigger: next }) })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (d) {
+        triggerError("");
+        if (!fresh(n)) return;
+        doc = d;
+        draw();
+        release();
+      })
+      .catch(function (err) {
+        triggerError("Mode not saved: " + err.message);
+      });
+  }
+
+  // POST sends the batch, DELETE cancels it. A 409 means the page is behind the sidecar.
+  function sendReady(method) {
+    var n = ++asked;
+    fetch(READY, { method: method })
+      .then(function (r) {
+        // Refetched first: the redraw would clear a message set before it.
+        if (r.status === 409) {
+          return r.text().then(function (text) {
+            return refresh().then(function () {
+              triggerError("Not sent: " + text.trim());
+            });
+          });
+        }
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json().then(function (st) {
+          triggerError("");
+          if (!fresh(n)) return;
+          doc.ready = st;
+          draw();
+          release();
+        });
+      })
+      .catch(function (err) {
+        triggerError((method === "POST" ? "Not sent: " : "Not cancelled: ") + err.message);
+      });
   }
 
   // The list at the foot of the document: the same entries in navigation order. Outside
@@ -347,15 +500,14 @@
   }
 
   function load() {
-    return fetch(ENDPOINT)
-      .then(function (r) {
-        if (!r.ok) throw new Error("annotations: " + r.status);
-        return r.json();
-      })
-      .then(function (d) {
-        doc = d;
-        draw();
-      });
+    var n = ++asked;
+    return get().then(function (d) {
+      if (!fresh(n)) return;
+      doc = d;
+      draw();
+      // The ready file may have gone: a reload held for it runs now.
+      release();
+    });
   }
 
   // The sidecar changed underneath (the agent wrote, or this page saved): refetch and
@@ -371,6 +523,7 @@
   }
 
   function save(list) {
+    var n = ++asked;
     return fetch(ENDPOINT, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -381,8 +534,8 @@
         return r.json();
       })
       .then(function (d) {
-        doc = d;
         current = null;
+        if (fresh(n)) doc = d;
         draw();
       });
   }
@@ -430,7 +583,7 @@
   }
 
   function busy() {
-    return pointerDown || !bubble.hidden || box.matches(":popover-open");
+    return pointerDown || !bubble.hidden || box.matches(":popover-open") || (queued() && document.documentElement.getAttribute("data-hold-reload") === "true");
   }
 
   function release() {
@@ -455,6 +608,7 @@
       notes.push(quote ? "new annotation" : "new comment on the whole document");
     }
     meta.append(notes.join(" · "));
+    if (saveError) meta.append(" · " + saveError);
     var link = a && a.exact && !entry.ranges.length && revisionLink(a);
     if (link) meta.append(" · ", link);
     var i = a ? editable(a) : -1;
@@ -464,6 +618,7 @@
 
   function openBox(entry, quote) {
     current = entry || null;
+    saveError = "";
     var a = entry ? entry.a : null, i = a ? editable(a) : -1;
     fillBox(entry, quote);
     textarea.value = i >= 0 ? a.thread[i].text : "";
@@ -483,6 +638,7 @@
   }
 
   function closeBox() {
+    saveError = "";
     if (box.matches(":popover-open")) box.hidePopover();
     CSS.highlights.delete("annot-pending");
     current = null;
@@ -493,7 +649,8 @@
 
   function submit() {
     var text = textarea.value.trim();
-    if (!text || saving) return;
+    // A closed box has nothing to save: its textarea may still hold a deleted entry's text.
+    if (!text || saving || !box.matches(":popover-open")) return;
     var list = doc.annotations.slice();
     if (current) {
       list = list.map(function (a) {
@@ -519,6 +676,7 @@
   // sends the entry twice.
   function write(list) {
     saving = true;
+    saveError = "";
     save(list)
       .then(closeBox, failed)
       .finally(function () {
@@ -529,7 +687,8 @@
   // The comment is still in the textarea: reopen rather than lose it behind an alert.
   function failed(err) {
     console.error(err);
-    meta.textContent = "Save failed: " + err.message;
+    saveError = "Save failed: " + err.message;
+    meta.textContent = saveError;
     if (!box.matches(":popover-open")) box.showPopover();
   }
 
@@ -630,6 +789,18 @@
     var prev = document.getElementById("annotation-prev"), next = document.getElementById("annotation-next");
     if (prev) prev.addEventListener("click", function () { step(-1); });
     if (next) next.addEventListener("click", function () { step(1); });
+    var mode = document.getElementById("annotation-mode");
+    if (mode) {
+      mode.addEventListener("click", function () { setTrigger(manual() ? "auto" : "manual"); });
+      document.getElementById("annotation-go").addEventListener("click", function () { sendReady("POST"); });
+      document.getElementById("annotation-cancel").addEventListener("click", function () { sendReady("DELETE"); });
+    }
+    // Timers are throttled in a hidden tab: catch up on return.
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") refresh().catch(console.error);
+    });
+    // Hold turned off in the settings menu: a reload held for the batch runs now.
+    new MutationObserver(function () { release(); }).observe(document.documentElement, { attributeFilter: ["data-hold-reload"] });
 
     document.addEventListener("keydown", function (ev) {
       if (ev.ctrlKey || ev.metaKey || ev.altKey || typing(ev.target)) return;

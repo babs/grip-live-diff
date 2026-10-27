@@ -56,12 +56,14 @@
     document.addEventListener("keydown", function (ev) {
       if (ev.key === "Escape" && menu.matches(":popover-open")) menu.hidePopover();
     }, true);
-    menu.querySelectorAll("input[type=radio]").forEach(function (input) {
-      var key = input.name.replace("settings-", "");
-      input.checked = current[key] === input.value;
+    menu.querySelectorAll("input").forEach(function (input) {
+      var key = input.name.replace("settings-", ""), flag = input.type === "checkbox";
+      input.checked = flag ? current[key] : current[key] === input.value;
       input.addEventListener("change", function () {
-        current[key] = input.value;
+        current[key] = flag ? input.checked : input.value;
         if (key === "width") root.setAttribute("data-width", input.value);
+        // annotate.js watches this attribute: no event contract between the two scripts.
+        else if (key === "hold_reload") root.setAttribute("data-hold-reload", String(input.checked));
         else applyTheme();
         save();
       });
