@@ -122,6 +122,12 @@ func TestPageMessage(t *testing.T) {
 		{"/doc.md", []string{"/sub/doc.md", "/sub/doc" + sidecarSuffix}, ""},
 		{"/doc.md", []string{"/doc" + revisionsSuffix + "x"}, ""},
 		{"/my doc.md", []string{"/my doc" + sidecarSuffix}, msgAnnotations},
+		// The ready file appearing or going: refresh, no reload.
+		{"/doc.md", []string{"/doc" + readySuffix}, msgAnnotations},
+		{"/sub/doc.md", []string{"/sub/doc" + readySuffix}, msgAnnotations},
+		{"/doc.md", []string{"/doc" + readySuffix, "/doc.md"}, msgReload},
+		{"/doc.md", []string{"/other" + readySuffix, "/sub/doc" + readySuffix}, ""},
+		{"/doc.md", []string{"/.doc" + readySuffix + "-123456", "/doc" + readySuffix + "x"}, ""},
 	} {
 		changed := make(map[string]struct{})
 		for _, name := range tc.changed {
@@ -138,7 +144,7 @@ func TestReloadScriptFollowsTheFlag(t *testing.T) {
 
 	for _, on := range []bool{true, false} {
 		f := &diffFixture{t: t, dir: t.TempDir()}
-		f.handler = NewServer("localhost", 6419, false, false, on, NewParser()).newHandler(http.Dir(f.dir))
+		f.handler = NewServer("localhost", 6419, false, false, on, NewParser(), "").newHandler(http.Dir(f.dir))
 		f.write("# Title\n")
 		if got := strings.Contains(f.get(docPath), reloadEndpoint); got != on {
 			t.Fatalf("reload %v: expected script presence %v, got %v", on, on, got)
@@ -152,7 +158,7 @@ func TestReloadScriptOffersEveryReloadAsACancelableEvent(t *testing.T) {
 	t.Parallel()
 
 	f := &diffFixture{t: t, dir: t.TempDir()}
-	f.handler = NewServer("localhost", 6419, false, false, true, NewParser()).newHandler(http.Dir(f.dir))
+	f.handler = NewServer("localhost", 6419, false, false, true, NewParser(), "").newHandler(http.Dir(f.dir))
 	f.write("# Title\n")
 	page := f.get(docPath)
 

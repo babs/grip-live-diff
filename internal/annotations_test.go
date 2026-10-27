@@ -542,3 +542,38 @@ func TestAnnotationsRevisionsEdgeCases(t *testing.T) {
 		t.Fatalf("expected no revisions directory, got %v", err)
 	}
 }
+
+// One JSON value per body: Decode alone would accept what follows the first value.
+func TestAnnotationsPutBodyIsOneValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		want int // 200 = accepted, anything else = refused with the sidecar untouched
+	}{
+		{"trailing garbage", `{"annotations":[]}garbage`, http.StatusBadRequest},
+		{"two objects", `{"annotations":[]}{"annotations":[]}`, http.StatusBadRequest},
+		{"padding past the cap", `{"annotations":[]}` + strings.Repeat(" ", maxSidecarBytes), http.StatusBadRequest},
+		// Whitespace before EOF is still one value, as curl may send it.
+		{"trailing whitespace", `{"annotations":[]}` + "\n \t\n", http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newDiffFixture(t, "# Title\n")
+			f.put(`[{"exact":null,"thread":[{"by":"reader","text":"keep"}]}]`)
+			stored := f.sidecar()
+
+			if rec := f.annotations(http.MethodPut, tt.body); rec.Code != tt.want {
+				t.Errorf("got %d, want %d", rec.Code, tt.want)
+			}
+			if tt.want != http.StatusOK {
+				if data, err := os.ReadFile(filepath.Join(f.dir, sidecarName)); err != nil || string(data) != stored {
+					t.Errorf("sidecar changed (err %v):\n%s", err, data)
+				}
+			}
+		})
+	}
+}

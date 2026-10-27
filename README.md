@@ -111,6 +111,7 @@ saved next to the file as `<name>.annotations.json5`:
 {
   "version": 2,
   "file": "README.md",
+  "trigger": "auto",
   "annotations": [
     {
       "id": "k3f9x2",
@@ -163,24 +164,44 @@ A reload due while you are selecting, have the **Annotate** bubble up or a box o
 selection is dropped, the box saved or closed; then it runs. Marks need the CSS Custom Highlight API
 (Chrome 105, Firefox 140, Safari 17.2); older browsers keep the file but draw nothing.
 
+By default the agent acts on every save (`"trigger": "auto"`). To batch comments and have the
+markdown rewritten once, switch the document to **manual** with the auto / manual button in the
+annotation row:
+
+- comments pile up; **Go**, enabled once an entry is open (not done, last message yours), writes
+  `<name>.annotations.ready` beside the sidecar: `{ "sent_at": <RFC 3339>, "pid": null }`;
+- the agent claims it under the sidecar's flock by setting `pid` and `claimed_at`, leaves it if `pid`
+  is already set, handles every open entry and deletes the file last. The PID is the one of its
+  long-lived process, taken before the flock: in Claude Code the shell's `$PPID`, read outside
+  `flock -c`;
+- the button reads **Sent** until claimed, **Agent working · pid N** while that process lives,
+  **Agent gone · pid N** once it exited, where Go sends again; **✕** cancels the batch by removing
+  the file. The page follows the file without reloading, and checks a working agent every 5 s;
+- a ready file in auto is stale: switching to auto, or any save in auto, drops it;
+- with **Hold reload while sent** on in the settings menu, a markdown change waits while the batch
+  is sent or worked on, then reloads once the file is gone or the agent is.
+
 ## Toolbar
 
-| Button | Does                                                                              |
-| ------ | --------------------------------------------------------------------------------- |
-| house  | Back to the index, the listing of the served directory                            |
-| `↔`    | Page width: **normal** (GitHub's 896px), **wide** (1400px), **full** (no limit)   |
-| `±`    | Diff on/off, see above                                                            |
-| theme  | Light or dark                                                                     |
-| pencil | Annotation capture on/off, see above                                              |
+| Button | Does                                                                                                             |
+| ------ | ---------------------------------------------------------------------------------------------------------------- |
+| house  | Back to the index, the listing of the served directory                                                           |
+| `±`    | Diff on/off, see above                                                                                           |
+| gear   | Settings: width **normal** (896px), **wide** (1400px), **full**; theme system/light/dark; hold reload while sent |
+| pencil | Annotation capture on/off, see above                                                                             |
+| mode   | Trigger auto/manual of the document; in manual, **Go** sends the batch, ✕ cancels it                             |
 
 Keys: `d` toggles the diff, `1` `2` `3` pick the reference, `n` `p` walk the annotations, `a`
 annotates the selection, `A` comments on the whole document, `Esc` closes a comment box, `Ctrl-Enter`
 (`Cmd-Enter` on macOS) saves it.
 
-Width, theme, minimap visibility, annotation capture and the last diff reference are kept in
-`localStorage`, so they
-survive restarts. The open/closed state of `<details>` blocks and the scroll position survive a
-reload, per tab.
+Width, theme and the reload hold are kept in `settings.json` under the user config directory
+(`~/.config/grip-live-diff/` on Linux, `~/Library/Application Support/grip-live-diff/` on macOS,
+`%AppData%\grip-live-diff\` on Windows), shared by every instance whatever its port; a change
+applies at once to its page, other open pages pick it up on their next load. Minimap visibility,
+annotation capture and the last diff reference are kept in `localStorage`, so they survive
+restarts. The open/closed state of `<details>` blocks and the scroll position survive a reload,
+per tab.
 
 ## Rendering
 
@@ -220,6 +241,9 @@ mise run test
 mise run lint
 ```
 
+`scripts/e2e/run.sh` drives headless Chrome through the manual trigger UI (needs go, node 22+,
+curl and Chrome; not run in CI).
+
 Features start as a spec in [`specs/`](specs/README.md) before any code. `release.sh` builds the
 release matrix and the checksum file; the `Build and release` workflow runs it on every `v*` tag.
 
@@ -229,7 +253,7 @@ release matrix and the checksum file; the `Build and release` workflow runs it o
   GitHub's API.
 - [go-grip](https://github.com/chrishrb/go-grip) by Christoph Herb: the offline Go rewrite this
   project forks. Rendering, theming, mermaid, math and emoji support are his work.
-- grip-live-diff: the live diff, minimap, inline annotations for an agent, width toggle, git `HEAD`
-  comparison and self-update.
+- grip-live-diff: the live diff, minimap, inline annotations for an agent, settings menu (width,
+  theme), git `HEAD` comparison and self-update.
 
 MIT, see [LICENSE](LICENSE).

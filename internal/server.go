@@ -60,6 +60,7 @@ type Server struct {
 	browser      bool
 	enableReload bool
 	reload       *reloader
+	settingsPath string // "" when settings are not persisted
 
 	mu        sync.Mutex
 	snapshots map[string]*snapshot
@@ -103,8 +104,9 @@ func isGitWorkTree(dir http.Dir) bool {
 	return exec.CommandContext(ctx, "git", "-C", string(dir), "rev-parse", "--is-inside-work-tree").Run() == nil
 }
 
-func NewServer(host string, port int, boundingBox bool, browser bool, enableReload bool, parser *Parser) *Server {
+func NewServer(host string, port int, boundingBox bool, browser bool, enableReload bool, parser *Parser, settingsPath string) *Server {
 	return &Server{
+		settingsPath: settingsPath,
 		host:         host,
 		port:         port,
 		boundingBox:  boundingBox,
@@ -244,8 +246,12 @@ func (s *Server) newHandler(dir http.Dir) http.Handler {
 	mux.HandleFunc("/__baseline", func(w http.ResponseWriter, r *http.Request) {
 		s.handleResetBaseline(w, r, dir, regex)
 	})
+	mux.HandleFunc("/__settings", s.handleSettings)
 	mux.HandleFunc("/__annotations", func(w http.ResponseWriter, r *http.Request) {
 		s.handleAnnotations(w, r, dir, regex)
+	})
+	mux.HandleFunc("/__annotations/ready", func(w http.ResponseWriter, r *http.Request) {
+		s.handleReady(w, r, dir, regex)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if regex.MatchString(r.URL.Path) {
@@ -331,6 +337,7 @@ type htmlStruct struct {
 	HasAnnotations bool
 	Revisions      []revisionRef // kept annotated versions, one picker row each
 	ReloadScript   template.HTML
+	Settings       settings
 }
 
 // revisionRef is one kept annotated version as the picker shows it: the twelve hex
@@ -451,6 +458,7 @@ func (s *Server) buildPage(r *http.Request, dir http.Dir, hasGit bool, content, 
 		HasChanges:   !bytes.Equal(baseline, content),
 		HasGit:       hasGit,
 		FileHash:     fileHash(content),
+		Settings:     loadSettings(s.settingsPath),
 	}
 	if s.enableReload {
 		page.ReloadScript = reloadScript

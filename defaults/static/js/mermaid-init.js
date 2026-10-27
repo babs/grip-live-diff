@@ -147,10 +147,7 @@
 
   document.addEventListener('DOMContentLoaded', function() {
     renderAll();
-
-    if (window.matchMedia) {
-      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderAll);
-    }
+    // settings.js fires themechange on an OS flip too, in system theme only.
     document.body.addEventListener('themechange', renderAll);
   });
 })();
