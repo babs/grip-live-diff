@@ -1,6 +1,6 @@
 # 010 — Manual trigger and settings
 
-**Status**: in progress
+**Status**: shipped
 **Requested by**: babs
 **Date**: 2026-10-26
 
@@ -86,40 +86,40 @@ file under the user's config directory, shared by every instance whatever its po
 
 ## Acceptance criteria
 
-- [ ] **AC1** Given a sidecar without `trigger`, the API reports `auto` and the toolbar shows auto.
-- [ ] **AC2** Given auto, when the reader switches to manual, then the sidecar holds
+- [x] **AC1** Given a sidecar without `trigger`, the API reports `auto` and the toolbar shows auto.
+- [x] **AC2** Given auto, when the reader switches to manual, then the sidecar holds
       `trigger: "manual"` and the entries are unchanged.
-- [ ] **AC3** Given manual, a save of entries keeps `trigger`; a PUT without `trigger` keeps the
+- [x] **AC3** Given manual, a save of entries keeps `trigger`; a PUT without `trigger` keeps the
       stored value.
-- [ ] **AC4** Given manual and an open entry, when the reader clicks Go, then
+- [x] **AC4** Given manual and an open entry, when the reader clicks Go, then
       `<name>.annotations.ready` exists with `sent_at` an RFC 3339 time and `pid: null`.
-- [ ] **AC5** Given manual and no open entry, Go is disabled and the API refuses the request.
-- [ ] **AC6** Given auto, the API refuses to write the ready file.
-- [ ] **AC7** Given the ready file, a second Go writes nothing; cancel removes the file.
-- [ ] **AC8** Given the ready file, when it is removed on disk, then the page shows Go again within
-      the reload latency, without reloading.
-- [ ] **AC9** Given the ready file, switching to auto removes it.
-- [ ] **AC10** The sidecar header states the manual rule: wait for the ready file, claim it with
+- [x] **AC5** Given manual and no open entry, Go is disabled and the API refuses the request.
+- [x] **AC6** Given auto, the API refuses to write the ready file.
+- [x] **AC7** Given the ready file, a second Go writes nothing; cancel removes the file.
+- [x] **AC8** Given the ready file, when it is removed on disk, then the page shows Go again within
+      the reload latency, without reloading (headless run).
+- [x] **AC9** Given the ready file, switching to auto removes it.
+- [x] **AC10** The sidecar header states the manual rule: wait for the ready file, claim it with
       the PID of the long-lived agent process under the flock, leave it if already claimed, handle
       every open entry, delete the ready file last.
-- [ ] **AC11** Given `hold_reload` on and the ready file present, writing the markdown does not
+- [x] **AC11** Given `hold_reload` on and the ready file present, writing the markdown does not
       reload the page; removing the ready file reloads it once. Given it off, the markdown write
-      reloads at once.
-- [ ] **AC12** The ready file of a kept revision (`.annotations.d/`) or outside the served tree is
+      reloads at once (headless run).
+- [x] **AC12** The ready file of a kept revision (`.annotations.d/`) or outside the served tree is
       refused, as for the sidecar.
-- [ ] **AC13** `go test ./...` green, `GOOS=windows go build ./...` green.
-- [ ] **AC14** Given no settings file, a page renders at `normal` width with the browser's theme.
-- [ ] **AC15** Given width `wide` saved from an instance on port A, a page from an instance on port
+- [x] **AC13** `go test ./...` green, `GOOS=windows go build ./...` green.
+- [x] **AC14** Given no settings file, a page renders at `normal` width with the browser's theme.
+- [x] **AC15** Given width `wide` saved from an instance on port A, a page from an instance on port
       B renders wide on first paint.
-- [ ] **AC16** `PUT /__settings` refuses a foreign `Origin`, an unknown enum value and a body over
+- [x] **AC16** `PUT /__settings` refuses a foreign `Origin`, an unknown enum value and a body over
       the cap; unknown keys are not written.
-- [ ] **AC17** Given a read-only config dir, changing width applies to the page and the server keeps
+- [x] **AC17** Given a read-only config dir, changing width applies to the page and the server keeps
       running.
-- [ ] **AC18** The toolbar has no width or theme button; the gear menu sets both.
-- [ ] **AC19** Given a ready file with `pid` of a live process, GET reports it working; with the PID
+- [x] **AC18** The toolbar has no width or theme button; the gear menu sets both.
+- [x] **AC19** Given a ready file with `pid` of a live process, GET reports it working; with the PID
       of an exited process, gone; with `pid: null`, sent.
-- [ ] **AC20** Given "agent gone", Go rewrites the ready file with `pid: null` and a new `sent_at`.
-- [ ] **AC21** Given a ready file the browser cannot parse (an agent wrote garbage), GET reports it
+- [x] **AC20** Given "agent gone", Go rewrites the ready file with `pid: null` and a new `sent_at`.
+- [x] **AC21** Given a ready file the browser cannot parse (an agent wrote garbage), GET reports it
       sent and the page still renders.
 
 ## Phases
