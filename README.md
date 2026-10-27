@@ -241,6 +241,9 @@ mise run test
 mise run lint
 ```
 
+`scripts/e2e/run.sh` drives headless Chrome through the manual trigger UI (needs go, node 22+,
+curl and Chrome; not run in CI).
+
 Features start as a spec in [`specs/`](specs/README.md) before any code. `release.sh` builds the
 release matrix and the checksum file; the `Build and release` workflow runs it on every `v*` tag.
 
