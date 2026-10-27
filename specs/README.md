@@ -13,3 +13,4 @@
 | 009 | [Watch on demand](009-watch-on-demand.md) | shipped |
 | 010 | [Manual trigger and settings](010-manual-trigger.md) | shipped |
 | 011 | [GitHub heading ids](011-github-heading-ids.md) | draft |
+| 012 | [Annotations on a repeated passage](012-annotation-repeated-passage.md) | draft |
