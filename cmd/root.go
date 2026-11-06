@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"os"
+	"syscall"
 
 	"github.com/babs/grip-live-diff/internal"
 	"github.com/spf13/cobra"
@@ -25,13 +27,24 @@ var rootCmd = &cobra.Command{
 
 		parser := internal.NewParser()
 		server := internal.NewServer(host, port, boundingBox, browser, !noReload, parser, internal.DefaultSettingsPath())
-		return server.Serve(file)
+		server.UseRegistry(internal.DefaultRegistryDir())
+		err := server.Serve(file)
+		var stopped internal.Stopped
+		if errors.As(err, &stopped) {
+			// 128+n is what a shell reports for a process killed by signal n, as before the handler.
+			os.Exit(128 + int(stopped.Signal.(syscall.Signal)))
+		}
+		return err
 	},
 }
 
 func Execute() {
-	err := rootCmd.Execute()
+	cmd, err := rootCmd.ExecuteC()
 	if err != nil {
+		// pending exits 1 when there is nothing to do: a wrong flag must not read as that.
+		if cmd == pendingCmd {
+			os.Exit(2)
+		}
 		os.Exit(1)
 	}
 }

@@ -6,17 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -61,6 +65,11 @@ type Server struct {
 	enableReload bool
 	reload       *reloader
 	settingsPath string // "" when settings are not persisted
+	registryDir  string // "" when routing is off
+	reg          *registry
+	regEvery     time.Duration
+	out          io.Writer
+	signals      chan os.Signal // tests only; nil listens to SIGINT and SIGTERM
 
 	mu        sync.Mutex
 	snapshots map[string]*snapshot
@@ -107,6 +116,8 @@ func isGitWorkTree(dir http.Dir) bool {
 func NewServer(host string, port int, boundingBox bool, browser bool, enableReload bool, parser *Parser, settingsPath string) *Server {
 	return &Server{
 		settingsPath: settingsPath,
+		regEvery:     registryEvery,
+		out:          os.Stdout,
 		host:         host,
 		port:         port,
 		boundingBox:  boundingBox,
@@ -116,6 +127,11 @@ func NewServer(host string, port int, boundingBox bool, browser bool, enableRelo
 		reload:       newReloader(),
 		snapshots:    make(map[string]*snapshot),
 	}
+}
+
+// UseRegistry turns routing on, with the instance registry in dir; "" leaves it off.
+func (s *Server) UseRegistry(dir string) {
+	s.registryDir = dir
 }
 
 // record updates the references of path and returns them. prev only moves when the
@@ -181,10 +197,27 @@ func serveTarget(arg string) (directory, filename string, err error) {
 	return parent, name + "/", nil
 }
 
+// Serve binds the port, writes the registry file, then prints the start line: an agent that
+// reads the line finds the file. It returns on SIGINT or SIGTERM once the file is removed.
 func (s *Server) Serve(file string) error {
 	directory, filename, err := serveTarget(file)
 	if err != nil {
 		return err
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
+	if err != nil {
+		return err
+	}
+	//nolint:errcheck
+	defer ln.Close()
+	if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
+		s.port = tcp.Port
+	}
+	signals := s.signals
+	if signals == nil {
+		signals = make(chan os.Signal, 1)
+		signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(signals)
 	}
 
 	dir := http.Dir(directory)
@@ -206,12 +239,17 @@ func (s *Server) Serve(file string) error {
 		addr, _ = url.JoinPath(addr, filename)
 	}
 
-	fmt.Printf("🚀 Starting server: %s\n", addr)
+	s.startRegistry(dir, instanceRoot(file))
+	if s.reg != nil {
+		defer s.reg.close()
+	}
+
+	_, _ = fmt.Fprintf(s.out, "🚀 Starting server: %s (pid %d)\n", addr, os.Getpid())
 
 	if s.browser {
 		err := Open(addr)
 		if err != nil {
-			fmt.Println("❌ Error opening browser:", err)
+			_, _ = fmt.Fprintln(s.out, "❌ Error opening browser:", err)
 		}
 	}
 
@@ -220,11 +258,61 @@ func (s *Server) Serve(file string) error {
 		if err != nil {
 			return fmt.Errorf("watch %s: %w", directory, err)
 		}
-		fmt.Printf("📡 Auto-reload enabled. Files will trigger browser refresh.\n")
+		_, _ = fmt.Fprintf(s.out, "📡 Auto-reload enabled. Files will trigger browser refresh.\n")
 	} else {
-		fmt.Printf("🔄 Auto-reload disabled. Use F5 to manually refresh.\n")
+		_, _ = fmt.Fprintf(s.out, "🔄 Auto-reload disabled. Use F5 to manually refresh.\n")
 	}
-	return http.ListenAndServe(fmt.Sprintf(":%d", s.port), handler)
+	if s.reg != nil {
+		go s.reg.run()
+	}
+
+	served := make(chan error, 1)
+	go func() { served <- http.Serve(ln, handler) }() //nolint:gosec // a local preview, no timeouts as before
+	select {
+	case err := <-served:
+		return err
+	case sig := <-signals:
+		return Stopped{sig}
+	}
+}
+
+// Stopped is what Serve returns once a signal stopped it and the registry file is removed.
+type Stopped struct{ Signal os.Signal }
+
+func (e Stopped) Error() string { return "stopped by " + e.Signal.String() }
+
+// startRegistry writes the file of this instance; routing stays off when it cannot.
+func (s *Server) startRegistry(dir http.Dir, root string) {
+	if s.registryDir == "" {
+		return
+	}
+	g := newRegistry(s.registryDir, s.port, root, s.out)
+	g.every = s.regEvery
+	g.pages = func() map[string]string {
+		out := map[string]string{}
+		for _, page := range s.reload.openPages() {
+			out[page] = pageKey(dir, page)
+		}
+		return out
+	}
+	// A change of targets is told as a change of the sidecar: the page refetches alike.
+	g.notify = func(page string) {
+		s.reload.broadcast(sidecarOf(page))
+	}
+	if err := g.start(); err != nil {
+		log.Printf("instance registry off: %v", err)
+		return
+	}
+	s.reg = g
+	s.reload.onPages = g.tick
+}
+
+// peers reads the registry; empty when routing is off.
+func (s *Server) peers() peers {
+	if s.reg == nil {
+		return peers{}
+	}
+	return s.reg.read()
 }
 
 func (s *Server) newHandler(dir http.Dir) http.Handler {

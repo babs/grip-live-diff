@@ -214,6 +214,9 @@ func TestSettingsMenu(t *testing.T) {
 }
 
 func TestDefaultSettingsPath(t *testing.T) {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		t.Skip("os.UserConfigDir ignores XDG_CONFIG_HOME here")
+	}
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	if got, want := DefaultSettingsPath(), filepath.Join(dir, "grip-live-diff", "settings.json"); got != want {
@@ -256,7 +259,7 @@ func TestSaveSettingsErrors(t *testing.T) {
 			if err := saveSettings(tt.setup(t, dir), loadSettings("")); err == nil {
 				t.Fatal("want an error")
 			}
-			if left, _ := filepath.Glob(filepath.Join(dir, ".settings-*.json")); len(left) != 0 {
+			if left, _ := filepath.Glob(filepath.Join(dir, ".settings.json-*")); len(left) != 0 {
 				t.Errorf("temp files left: %v", left)
 			}
 		})

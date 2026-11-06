@@ -2,6 +2,7 @@ package internal
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -208,6 +209,7 @@ func TestMergeThread(t *testing.T) {
 	old := "2026-09-05T11:52:03+02:00"
 	agent := message{By: "agent", Text: "answer"}
 	dated := func(text string) message { return message{By: "reader", At: &old, Text: text} }
+	routed := func(m message, via int) message { m.Via = via; return m }
 	cases := []struct {
 		name     string
 		stored   []message
@@ -215,21 +217,27 @@ func TestMergeThread(t *testing.T) {
 		want     []string
 		reopened bool
 	}{
-		{"new entry keeps reader messages only", nil, []message{reader("a"), agent, reader("b")}, []string{"reader:a@now", "reader:b@now"}, true},
+		{"new entry keeps reader messages only", nil, []message{reader("a"), agent, reader("b")}, []string{"reader:a@now→7", "reader:b@now→7"}, true},
 		{"edit in place keeps the date", []message{dated("a")}, []message{reader("a2")}, []string{"reader:a2@" + old}, false},
 		{"agent message untouched, reader text updated", []message{dated("a"), agent}, []message{reader("a2"), {By: "agent", Text: "forged"}}, []string{"reader:a2@" + old, "agent:answer"}, false},
-		{"follow-up appended after the agent", []message{dated("a"), agent}, []message{reader("a"), reader("b")}, []string{"reader:a@" + old, "agent:answer", "reader:b@now"}, true},
+		{"follow-up appended after the agent", []message{dated("a"), agent}, []message{reader("a"), reader("b")}, []string{"reader:a@" + old, "agent:answer", "reader:b@now→7"}, true},
+		// 013-AC9, 013-AC10: the via the browser sends is ignored; an edit keeps the stored one.
+		{"via of the browser ignored", nil, []message{routed(reader("a"), 9)}, []string{"reader:a@now→7"}, true},
+		{"edit keeps its via", []message{routed(dated("a"), 5), agent}, []message{routed(reader("a2"), 9), reader("b")}, []string{"reader:a2@" + old + "→5", "agent:answer", "reader:b@now→7"}, true},
 		{"fewer reader messages than stored: nothing dropped", []message{dated("a"), agent, dated("b")}, []message{reader("a")}, []string{"reader:a@" + old, "agent:answer", "reader:b@" + old}, false},
 		{"empty incoming keeps the thread", []message{dated("a"), agent}, nil, []string{"reader:a@" + old, "agent:answer"}, false},
 		{"unknown author is not the reader's", []message{dated("a"), {By: "claude", Text: "hi"}}, []message{reader("a"), {By: "claude", Text: "forged"}}, []string{"reader:a@" + old, "claude:hi"}, false},
 	}
 	for _, c := range cases {
-		got, reopened := mergeThread(c.stored, c.incoming, "now")
+		got, reopened := mergeThread(c.stored, c.incoming, "now", 7)
 		var flat []string
 		for _, m := range got {
 			s := m.By + ":" + m.Text
 			if m.At != nil {
 				s += "@" + *m.At
+			}
+			if m.Via != 0 {
+				s += fmt.Sprintf("→%d", m.Via)
 			}
 			flat = append(flat, s)
 		}

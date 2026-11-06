@@ -99,6 +99,10 @@ type reloader struct {
 	polledLogged bool
 	warned       map[string]struct{} // pages logged for naming too many directories
 	stop         chan struct{}
+	// The sockets open per page, kept releaseAfter past the last one like a directory, for the
+	// registry; onPages is called, outside subMu, when the set of pages changes.
+	pages   map[string]*refCount
+	onPages func()
 
 	releaseAfter    time.Duration
 	checkEvery      time.Duration
@@ -109,15 +113,52 @@ type reloader struct {
 	beforeHashCheck func() // tests only
 }
 
+// refCount counts the users of an entry; timer is the pending release of the last one gone.
+type refCount struct {
+	n     int
+	timer *time.Timer
+}
+
+// acquire counts a user, and cancels a pending release.
+func (c *refCount) acquire() {
+	if c.timer != nil {
+		c.timer.Stop()
+		c.timer = nil
+	}
+	c.n++
+}
+
+// drop counts a user gone, under mu. The last one runs release under mu after delay, unless a
+// user came back or a later drop replaced the timer: a timer stopped too late may already wait
+// on mu. What release returns runs once mu is released.
+func (c *refCount) drop(mu *sync.Mutex, delay time.Duration, release func() (after func())) {
+	if c.n--; c.n > 0 {
+		return
+	}
+	var timer *time.Timer
+	// The callback reads timer under mu: it may fire before this assignment.
+	timer = time.AfterFunc(delay, func() {
+		mu.Lock()
+		var after func()
+		if c.n == 0 && c.timer == timer {
+			after = release()
+		}
+		mu.Unlock()
+		if after != nil {
+			after()
+		}
+	})
+	c.timer = timer
+}
+
 // subscription counts the pages following a directory. info tells it from another directory
-// later at the same path; timer is the pending release.
+// later at the same path.
 type subscription struct {
-	n        int
+	refCount
 	watched  bool
 	failed   bool // never retried while the entry lives
 	fdLogged bool
 	info     os.FileInfo
-	timer    *time.Timer
 }
 
 func newReloader() *reloader {
@@ -128,6 +169,7 @@ func newReloader() *reloader {
 		subs:         make(map[string]*subscription),
 		warned:       make(map[string]struct{}),
 		stop:         make(chan struct{}),
+		pages:        make(map[string]*refCount),
 		releaseAfter: releaseAfter,
 		checkEvery:   checkEvery,
 		pingEvery:    pingEvery,
@@ -192,6 +234,8 @@ func (r *reloader) serveWS(w http.ResponseWriter, req *http.Request) {
 	}
 	// Before the hash check: a write between the two would be seen by neither.
 	defer r.unsubscribe(r.subscribe(dirs))
+	r.enter(page)
+	defer r.leave(page)
 	if r.beforeHashCheck != nil {
 		r.beforeHashCheck()
 	}
@@ -281,14 +325,13 @@ func pageMessage(page string, resources []string, changed map[string]struct{}) s
 			return msgReload
 		}
 	}
-	base := strings.TrimSuffix(page, path.Ext(page))
-	if _, ok := changed[base+sidecarSuffix]; ok {
+	if _, ok := changed[sidecarOf(page)]; ok {
 		return msgAnnotations
 	}
-	if _, ok := changed[base+readySuffix]; ok {
+	if _, ok := changed[readyOf(sidecarOf(page))]; ok {
 		return msgAnnotations
 	}
-	revisions := base + revisionsSuffix
+	revisions := revisionsOf(sidecarOf(page))
 	for name := range changed {
 		if name == revisions || strings.HasPrefix(name, revisions+"/") {
 			return msgAnnotations
@@ -402,11 +445,7 @@ func (r *reloader) subscribe(dirs []string) []string {
 			r.subs[d] = sub
 			r.addLocked(d, sub)
 		}
-		if sub.timer != nil {
-			sub.timer.Stop()
-			sub.timer = nil
-		}
-		sub.n++
+		sub.acquire()
 		counted = append(counted, d)
 	}
 	return counted
@@ -445,22 +484,65 @@ func (r *reloader) unsubscribe(dirs []string) {
 		if sub == nil {
 			continue
 		}
-		if sub.n--; sub.n > 0 {
-			continue
-		}
-		var timer *time.Timer
-		// The callback reads timer under subMu: it may fire before this assignment.
-		timer = time.AfterFunc(r.releaseAfter, func() { r.release(d, sub, &timer) })
-		sub.timer = timer
+		sub.drop(&r.subMu, r.releaseAfter, func() func() {
+			r.release(d, sub)
+			return nil
+		})
 	}
 }
 
-// release stops watching d unless a page came back or another timer replaced this one: a
-// timer stopped too late may already wait on the lock.
-func (r *reloader) release(d string, sub *subscription, timer **time.Timer) {
+// enter counts a socket of page.
+func (r *reloader) enter(page string) {
+	r.subMu.Lock()
+	p, known := r.pages[page]
+	if !known {
+		p = &refCount{}
+		r.pages[page] = p
+	}
+	p.acquire()
+	r.subMu.Unlock()
+	if !known {
+		r.pagesChanged()
+	}
+}
+
+// leave drops a socket of page; the last one starts the release delay, so a reload keeps it.
+func (r *reloader) leave(page string) {
 	r.subMu.Lock()
 	defer r.subMu.Unlock()
-	if r.subs[d] != sub || sub.n > 0 || sub.timer != *timer {
+	p := r.pages[page]
+	if p == nil {
+		return
+	}
+	p.drop(&r.subMu, r.releaseAfter, func() func() {
+		if r.pages[page] != p {
+			return nil
+		}
+		delete(r.pages, page)
+		return r.pagesChanged
+	})
+}
+
+func (r *reloader) pagesChanged() {
+	if r.onPages != nil {
+		r.onPages()
+	}
+}
+
+// openPages lists the URL paths a socket follows, or followed less than releaseAfter ago.
+func (r *reloader) openPages() []string {
+	r.subMu.Lock()
+	defer r.subMu.Unlock()
+	out := make([]string, 0, len(r.pages))
+	for page := range r.pages {
+		out = append(out, page)
+	}
+	return out
+}
+
+// release stops watching d, under subMu, unless another entry replaced sub.
+func (r *reloader) release(d string, sub *subscription) {
+	if r.subs[d] != sub {
 		return
 	}
 	delete(r.subs, d)

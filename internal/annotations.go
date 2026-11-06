@@ -51,14 +51,22 @@ const sidecarHeader = `// grip-live-diff annotations for %s. JSON5: comments and
 //   - revisions maps a file_hash to a copy of the file as it was when those entries were written;
 //     read one only for an entry whose exact is gone from the file. Managed by the preview.
 //
+// Several previews may serve this file, each for its own agent. Before you handle anything, run
+//   grip-live-diff pending --port <port> --pid <pid> <this file>
+// with the port and PID of the start line of the preview you started ("Starting server:
+// http://localhost:<port>/... (pid <pid>)"), and handle only the entries it lists, one
+// "<sidecar><TAB><id>" line each; exit 1 lists none; exit 2: your instance is gone or a
+// path or argument is wrong, start it again. The others are another agent's. In manual,
+// handle the entries of a ready batch once you claimed it: the claim lists them (below).
+//
 // trigger is the reader's: "auto" (absent too) or "manual". In manual, a change to this file is
 // not a request: wait for the ready file beside it, this file's name with .json5 -> .ready (stat
-// it, or watch the directory). Take your PID before the lock: the one of your long-lived
-// process, not of the shell running your command (in Claude Code, that shell's $PPID, read
-// outside flock -c, where $PPID is flock's). Then, under the flock of this file, read the ready
-// file: absent -> the batch was cancelled, nothing to do, do not create it; pid null -> set pid
-// to your PID and claimed_at, write it back; pid set -> another agent holds the batch, leave it.
-// Handle every open entry, then delete the ready file, last.
+// it, or watch the directory). When pending lists "<sidecar><TAB>ready", claim the batch:
+//   grip-live-diff pending --port <port> --pid <pid> --claim <your PID> <this file>
+// Your PID is the one of your long-lived process, not of the shell running your command (in
+// Claude Code, that shell's $PPID). The claim takes the flock of this file itself: do not hold
+// it around the call. Exit 1 -> the batch was cancelled, or another agent holds it: leave it, do
+// not create the ready file. Handle the entries the claim lists, then delete the ready file, last.
 //
 // Entry: { id, exact, prefix, suffix, lines: [start, end] | null, file_hash, status?: "done",
 //          thread: [{ by: "reader" | "agent", at: <RFC 3339> | null, text }] }
@@ -70,6 +78,8 @@ type message struct {
 	By   string  `json:"by"`
 	At   *string `json:"at"`
 	Text string  `json:"text"`
+	// The port of the instance whose agent answers a reader message; set by the server only.
+	Via int `json:"via,omitempty"`
 }
 
 // annotation is one entry of the sidecar. Exact, Prefix and Suffix follow the W3C
@@ -126,6 +136,7 @@ type sidecar struct {
 // tell a comment written against an older version.
 type annotationsResponse struct {
 	sidecar
+	routingInfo
 	Hash  string     `json:"hash"`
 	Ready readyState `json:"ready"`
 }
@@ -142,9 +153,27 @@ func newAnnotationID() string {
 // sidecarPath maps a markdown URL path to its sidecar on disk, confined to dir the same
 // way http.Dir confines its opens.
 func sidecarPath(dir http.Dir, target string) string {
-	clean := path.Clean("/" + target)
-	name := strings.TrimSuffix(clean, path.Ext(clean)) + sidecarSuffix
-	return filepath.Join(string(dir), filepath.FromSlash(name))
+	return filepath.Join(string(dir), filepath.FromSlash(sidecarOf(path.Clean("/"+target))))
+}
+
+// sidecarOf names the sidecar of the document at p, a URL path or a file path.
+func sidecarOf(p string) string {
+	return strings.TrimSuffix(p, filepath.Ext(p)) + sidecarSuffix
+}
+
+// readyOf names the ready file beside the sidecar at p.
+func readyOf(p string) string {
+	return strings.TrimSuffix(p, sidecarSuffix) + readySuffix
+}
+
+// revisionsOf names the directory of kept copies beside the sidecar at p.
+func revisionsOf(p string) string {
+	return strings.TrimSuffix(p, sidecarSuffix) + revisionsSuffix
+}
+
+// sidecarOfReady names the sidecar beside the ready file at p.
+func sidecarOfReady(p string) string {
+	return strings.TrimSuffix(p, readySuffix) + sidecarSuffix
 }
 
 // isMarkdownTarget accepts only a markdown path of this server: no other host, no other
@@ -161,7 +190,7 @@ func isRevisionTarget(target string) bool {
 
 // revisionsDir is the directory holding the copies of target's annotated versions.
 func revisionsDir(dir http.Dir, target string) string {
-	return strings.TrimSuffix(sidecarPath(dir, target), sidecarSuffix) + revisionsSuffix
+	return revisionsOf(sidecarPath(dir, target))
 }
 
 // revisionName is the file name of the copy for hash: twelve hex characters are plenty
@@ -263,20 +292,29 @@ func emptySidecar(target string) sidecar {
 }
 
 func decodeSidecar(f *os.File, target string) (sidecar, error) {
-	sc := emptySidecar(target)
 	data, err := io.ReadAll(io.LimitReader(f, maxSidecarBytes))
 	if err != nil {
-		return sc, err
+		return emptySidecar(target), err
 	}
+	sc, _, err := parseSidecar(data, target, f.Name())
+	return sc, err
+}
+
+// parseSidecar decodes the sidecar of target read from the file name, and returns the file
+// name it stored, "" when none.
+func parseSidecar(data []byte, target, name string) (sidecar, string, error) {
+	sc := emptySidecar(target)
 	// A freshly created file is empty: that is the "no annotations yet" sidecar.
 	if len(strings.TrimSpace(string(data))) == 0 {
-		return sc, nil
+		return sc, "", nil
 	}
+	sc.File = ""
 	// JSON5, not JSON: an agent round-tripping through a JSON5 library writes bare keys
 	// and single quotes, and the header above the document is a comment.
 	if err := json5.Unmarshal(data, &sc); err != nil {
-		return sc, fmt.Errorf("decode %s: %w", f.Name(), err)
+		return sc, "", fmt.Errorf("decode %s: %w", name, err)
 	}
+	stored := sc.File
 	sc.Version, sc.File = sidecarVersion, path.Base(target)
 	if sc.Trigger != triggerManual {
 		sc.Trigger = triggerAuto
@@ -287,7 +325,7 @@ func decodeSidecar(f *os.File, target string) (sidecar, error) {
 	for i, a := range sc.Annotations {
 		sc.Annotations[i] = upgrade(a)
 	}
-	return sc, nil
+	return sc, stored, nil
 }
 
 // A sidecar replaced this often while we wait for its lock is not one an agent edits.
@@ -342,11 +380,63 @@ func readSidecar(dir http.Dir, target string) (sidecar, error) {
 	return decodeSidecar(f, target)
 }
 
+// writeRoute is the registry read a save or a send is checked against: via is the port the
+// reader chose. The zero value is routing off.
+type writeRoute struct {
+	via   int
+	key   string
+	peers peers
+}
+
+// owns tells whether the instance via owns a message routed to msgVia.
+func (rt writeRoute) owns(msgVia int) bool {
+	return rt.peers.owns(rt.key, msgVia, rt.via)
+}
+
+// owner applies the owner rule to the via of a message.
+func (rt writeRoute) owner(via int) int {
+	return rt.peers.owner(rt.key, via)
+}
+
+// routed is false when routing is off: no owner to re-stamp or rewrite a via to.
+func (rt writeRoute) routed() bool {
+	return rt.peers.self != 0
+}
+
+// route reads the registry once for target: the check of a write, and what the page shows.
+func (s *Server) route(dir http.Dir, target string, asked int) (writeRoute, routingInfo) {
+	key := pageKey(dir, target)
+	p := s.peers()
+	return writeRoute{via: p.pick(key, asked), key: key, peers: p}, p.info(s.port, key)
+}
+
+// lastMessage is the last message of the thread of a, in place; nil when it has none.
+func lastMessage(a *annotation) *message {
+	if len(a.Thread) == 0 {
+		return nil
+	}
+	return &a.Thread[len(a.Thread)-1]
+}
+
+// restamp gives an open entry whose via is gone the port of its owner: its agent may already
+// handle it, whatever port the reader chose since.
+func restamp(entries []annotation, owner func(int) int) {
+	for _, a := range entries {
+		if !isOpen(a) {
+			continue
+		}
+		last := lastMessage(&a)
+		if o := owner(last.Via); last.Via != 0 && o != 0 && o != last.Via {
+			last.Via = o
+		}
+	}
+}
+
 // writeSidecar replaces the annotations of target with incoming, merged with what is on
 // disk under an exclusive lock, and sets trigger unless empty; nil incoming keeps the stored
 // list. The write is in place, not temp + rename: a rename would swap the inode under an
 // agent waiting on the lock.
-func writeSidecar(dir http.Dir, target string, source []byte, incoming *[]annotation, trigger string) (sidecar, error) {
+func writeSidecar(dir http.Dir, target string, source []byte, incoming *[]annotation, trigger string, rt writeRoute) (sidecar, error) {
 	p := sidecarPath(dir, target)
 	f, err := lockSidecar(p, os.O_RDWR|os.O_CREATE, true)
 	if err != nil {
@@ -363,7 +453,10 @@ func writeSidecar(dir http.Dir, target string, source []byte, incoming *[]annota
 		stored.Trigger = trigger
 	}
 	if incoming != nil {
-		stored.Annotations = mergeAnnotations(stored.Annotations, *incoming, source)
+		stored.Annotations = mergeAnnotations(stored.Annotations, *incoming, source, rt.via)
+	}
+	if rt.routed() {
+		restamp(stored.Annotations, rt.owner)
 	}
 	stored.Revisions, err = syncRevisions(revisionsDir(dir, target), stored.Annotations, source, fileHash(source))
 	if err != nil {
@@ -414,7 +507,7 @@ func dropStaleReady(dir http.Dir, target string, stale bool) {
 // owns the reader messages and the list membership; the agent owns everything else on an
 // existing entry (status, its messages, and the quote it re-anchors), so those always come
 // from disk.
-func mergeAnnotations(stored, incoming []annotation, source []byte) []annotation {
+func mergeAnnotations(stored, incoming []annotation, source []byte, via int) []annotation {
 	known := make(map[string]annotation, len(stored))
 	for _, a := range stored {
 		known[a.ID] = a
@@ -434,7 +527,7 @@ func mergeAnnotations(stored, incoming []annotation, source []byte) []annotation
 			a = in
 			a.ID, a.FileHash, a.Status = newAnnotationID(), hash, ""
 			// An entry with nothing said is not a request.
-			if a.Thread, _ = mergeThread(nil, in.Thread, now); len(a.Thread) == 0 {
+			if a.Thread, _ = mergeThread(nil, in.Thread, now, via); len(a.Thread) == 0 {
 				continue
 			}
 		case !ok:
@@ -443,7 +536,7 @@ func mergeAnnotations(stored, incoming []annotation, source []byte) []annotation
 		default:
 			a = old
 			var reopened bool
-			if a.Thread, reopened = mergeThread(old.Thread, in.Thread, now); reopened {
+			if a.Thread, reopened = mergeThread(old.Thread, in.Thread, now, via); reopened {
 				a.Status = ""
 			}
 		}
@@ -457,8 +550,9 @@ func mergeAnnotations(stored, incoming []annotation, source []byte) []annotation
 // mergeThread applies the browser's reader messages to the stored thread. Reader messages
 // are matched by rank: the browser may have loaded the page before the agent answered, so
 // positions in the two lists do not line up, but the reader's own sequence only grows.
-// Edits keep their date; new messages are dated now and appended, which reopens the entry.
-func mergeThread(stored, incoming []message, now string) ([]message, bool) {
+// Edits keep their date and via; new messages are dated now, routed to via and appended, which
+// reopens the entry. The via the browser sends is ignored.
+func mergeThread(stored, incoming []message, now string, via int) ([]message, bool) {
 	var readers []message
 	for _, m := range incoming {
 		if m.By == byReader {
@@ -476,7 +570,7 @@ func mergeThread(stored, incoming []message, now string) ([]message, bool) {
 	}
 	for _, m := range readers[rank:] {
 		at := now
-		out = append(out, message{By: byReader, At: &at, Text: m.Text})
+		out = append(out, message{By: byReader, At: &at, Text: m.Text, Via: via})
 	}
 	return out, rank < len(readers)
 }
@@ -554,14 +648,18 @@ func (s *Server) handleAnnotations(w http.ResponseWriter, r *http.Request, dir h
 	}
 
 	var sc sidecar
+	var rt writeRoute
+	var info routingInfo
 	switch r.Method {
 	case http.MethodGet:
+		_, info = s.route(dir, target, 0)
 		sc, err = readSidecar(dir, target)
 	case http.MethodPut:
 		var body struct {
 			// Absent keeps the list: a mode switch alone must not empty it.
 			Annotations *[]annotation `json:"annotations"`
 			Trigger     *string       `json:"trigger"`
+			Via         int           `json:"via"`
 		}
 		if err := decodeJSONBody(w, r, maxSidecarBytes, &body); err != nil ||
 			(body.Trigger != nil && *body.Trigger != triggerAuto && *body.Trigger != triggerManual) {
@@ -572,7 +670,8 @@ func (s *Server) handleAnnotations(w http.ResponseWriter, r *http.Request, dir h
 		if body.Trigger != nil {
 			trigger = *body.Trigger
 		}
-		sc, err = writeSidecar(dir, target, content, body.Annotations, trigger)
+		rt, info = s.route(dir, target, body.Via)
+		sc, err = writeSidecar(dir, target, content, body.Annotations, trigger, rt)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -585,7 +684,7 @@ func (s *Server) handleAnnotations(w http.ResponseWriter, r *http.Request, dir h
 
 	setNoCacheHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
-	resp := annotationsResponse{sidecar: sc, Hash: fileHash(content), Ready: readReady(readyPath(dir, target))}
+	resp := annotationsResponse{sidecar: sc, routingInfo: info, Hash: fileHash(content), Ready: readReady(readyPath(dir, target))}
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Println(err)
 	}

@@ -212,6 +212,21 @@
   color: #cf222e;
 }
 
+/* The page is open in another instance too: whose agent gets the next message. */
+.annotations-banner {
+  margin: 0 0 16px;
+  padding: 6px 12px;
+  border: 1px solid #f57c00;
+  border-radius: 6px;
+  background: rgba(255, 213, 0, 0.08);
+  font-size: 14px;
+}
+.annotations-banner select {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+}
+
 /* The list at the foot of the document. */
 .annotations-list {
   max-width: inherit;

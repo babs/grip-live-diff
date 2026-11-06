@@ -310,8 +310,8 @@ func TestReadyPost(t *testing.T) {
 			if fi, err := os.Stat(filepath.Join(f.dir, readyName)); runtime.GOOS != "windows" && (err != nil || fi.Mode().Perm() != 0o644) {
 				t.Fatalf("expected the ready file 0644, got %v %v", fi.Mode(), err)
 			}
-			var st readyState
-			if json.Unmarshal(rec.Body.Bytes(), &st) != nil || st.State != readySent || st.PID != nil {
+			var resp readyResponse
+			if json.Unmarshal(rec.Body.Bytes(), &resp) != nil || resp.Ready.State != readySent || resp.Ready.PID != nil {
 				t.Fatalf("expected the response to report sent, got %s", rec.Body)
 			}
 		})
@@ -421,25 +421,32 @@ func TestReadyRefusals(t *testing.T) {
 	}
 }
 
-// 010-AC10
+// 010-AC10, as 013-AC13 routes it through grip-live-diff pending.
 func TestSidecarHeaderStatesTheManualRule(t *testing.T) {
 	t.Parallel()
 
 	header := fmt.Sprintf(sidecarHeader, "doc.md")
 	flat := strings.ReplaceAll(header, "\n// ", " ")
 	for _, want := range []string{
-		`"manual"`, "wait for the ready file", "-> .ready", "under the flock of this file, read the ready file",
-		"Take your PID before the lock", "long-lived process", "$PPID, read outside flock -c",
-		"absent -> the batch was cancelled, nothing to do, do not create it",
-		"pid set -> another agent holds the batch, leave it",
-		"Handle every open entry", "delete the ready file, last", "file_hash or trigger",
+		`"manual"`, "wait for the ready file", "-> .ready",
+		"grip-live-diff pending --port <port> --pid <pid> <this file>",
+		"the start line of the preview you started", "(pid <pid>)",
+		"handle only the entries it lists",
+		"grip-live-diff pending --port <port> --pid <pid> --claim <your PID> <this file>",
+		"long-lived process", "$PPID", "takes the flock of this file itself",
+		"another agent holds it: leave it, do not create the ready file",
+		"Handle the entries the claim lists", "delete the ready file, last", "file_hash or trigger",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("expected the header to state %q", want)
 		}
 	}
-	paragraph := header[strings.Index(header, "// trigger is"):]
-	for _, line := range strings.Split(paragraph[:strings.Index(paragraph, "\n//\n")], "\n") {
+	// 013-AC13: committed with the sidecar, so no path of this host.
+	if strings.Contains(header, "/Users/") || strings.Contains(header, "/home/") || strings.Contains(header, `:\`) {
+		t.Errorf("expected no absolute path in the header")
+	}
+	paragraphs := header[strings.Index(header, "// Several previews"):strings.Index(header, "// Entry:")]
+	for _, line := range strings.Split(paragraphs, "\n") {
 		if len(line) > 100 {
 			t.Errorf("header line is %d characters: %q", len(line), line)
 		}

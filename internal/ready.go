@@ -6,12 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/titanous/json5"
@@ -36,12 +33,22 @@ var (
 	errNothingOpen = errors.New("no open entry")
 )
 
+// refusal is a Go refused because of the instance on port: "nothing open for :6420".
+type refusal struct {
+	reason string
+	port   int
+}
+
+func (e refusal) Error() string { return fmt.Sprintf("%s :%d", e.reason, e.port) }
+
 // readyFile is what the preview writes when the reader sends a batch; the agent sets PID
-// (and claimed_at, not read here) when it takes it.
+// and claimed_at when it takes it. Via is the port of the instance the batch is for.
 type readyFile struct {
 	SentAt *string `json:"sent_at"`
 	// int64, not int: a 32-bit build would refuse a large PID and read the file as sent.
-	PID *int64 `json:"pid"`
+	PID       *int64  `json:"pid"`
+	ClaimedAt *string `json:"claimed_at,omitempty"`
+	Via       int     `json:"via,omitempty"`
 }
 
 // readyState is the ready file as the page shows it.
@@ -49,11 +56,18 @@ type readyState struct {
 	State  string  `json:"state"`
 	PID    *int64  `json:"pid"`
 	SentAt *string `json:"sent_at"`
+	Via    int     `json:"via,omitempty"`
+}
+
+// readyResponse is the ready state with the registry read, as the annotations GET has them.
+type readyResponse struct {
+	routingInfo
+	Ready readyState `json:"ready"`
 }
 
 // readyPath is the ready file beside target's sidecar, confined like it.
 func readyPath(dir http.Dir, target string) string {
-	return strings.TrimSuffix(sidecarPath(dir, target), sidecarSuffix) + readySuffix
+	return readyOf(sidecarPath(dir, target))
 }
 
 // readReady reports the state of the ready file at p. A file that does not parse reads as
@@ -65,30 +79,61 @@ func readReady(p string) readyState {
 	case err != nil, !regular:
 		return readyState{State: readySent}
 	}
-	var rf readyFile
-	f, err := os.Open(p) //nolint:gosec // p is confined to dir by readyPath
-	if err == nil {
-		var data []byte
-		data, err = io.ReadAll(io.LimitReader(f, maxReadyBytes))
-		_ = f.Close()
-		if err == nil {
-			err = json5.Unmarshal(data, &rf)
-		}
-	}
+	return stateOf(loadReady(p))
+}
+
+// stateOf is the state of a ready file as loadReady read it.
+func stateOf(rf readyFile, err error) readyState {
 	if err != nil {
 		return readyState{State: readySent}
 	}
-	st := readyState{PID: rf.PID, SentAt: rf.SentAt}
+	st := readyState{PID: rf.PID, SentAt: rf.SentAt, Via: rf.Via}
 	switch {
 	case rf.PID == nil:
 		st.State = readySent
-	// Out of range, Kill would truncate the PID to another, live, process.
-	case *rf.PID > 0 && *rf.PID <= math.MaxInt32 && processAlive(int(*rf.PID)):
+	case pidAlive(*rf.PID):
 		st.State = readyWorking
 	default:
 		st.State = readyGone
 	}
 	return st
+}
+
+// readLimited reads at most limit bytes of the file at p: a file another process writes.
+func readLimited(p string, limit int64) ([]byte, error) {
+	f, err := os.Open(p) //nolint:gosec // p is a registry file, a ready file confined by readyPath or named by the agent
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(io.LimitReader(f, limit))
+}
+
+// loadReady parses the ready file at p; check isRegular first.
+func loadReady(p string) (readyFile, error) {
+	var rf readyFile
+	data, err := readLimited(p, maxReadyBytes)
+	if err == nil {
+		err = json5.Unmarshal(data, &rf)
+	}
+	return rf, err
+}
+
+// writeReady replaces the ready file at p whole: the agent may stat it at any time.
+func writeReady(p string, rf readyFile) error {
+	data, err := json.Marshal(rf)
+	if err != nil {
+		return err
+	}
+	if err := replaceFile(p, 0o644, append(data, '\n')); err != nil {
+		return fmt.Errorf("write %s: %w", p, err)
+	}
+	return nil
+}
+
+// lastVia is where the last message of an open entry is routed.
+func lastVia(a annotation) int {
+	return lastMessage(&a).Via
 }
 
 // isRegular is checked before any open: opening a FIFO blocks until a writer comes, and a
@@ -101,12 +146,14 @@ func isRegular(p string) (bool, error) {
 // isOpen tells a request from a handled entry: the reader spoke last and the agent did not
 // close it.
 func isOpen(a annotation) bool {
-	return a.Status != "done" && len(a.Thread) > 0 && a.Thread[len(a.Thread)-1].By == byReader
+	last := lastMessage(&a)
+	return a.Status != "done" && last != nil && last.By == byReader
 }
 
-// sendReady writes the ready file of target, under the sidecar's lock, the one the agent
-// claims under. A batch already sent or worked on is left as is.
-func sendReady(dir http.Dir, target string) (readyState, error) {
+// sendReady writes the ready file of target for the instance rt.via, under the sidecar's lock,
+// the one the agent claims under. A batch already sent or worked on is left as is when its
+// owner is rt.via, its gone via rewritten; refused when it is another instance's.
+func sendReady(dir http.Dir, target string, rt writeRoute) (readyState, error) {
 	// O_RDWR: on NFS, flock is emulated by fcntl, whose exclusive lock needs a writable fd.
 	f, err := lockSidecar(sidecarPath(dir, target), os.O_RDWR, true)
 	if errors.Is(err, os.ErrNotExist) {
@@ -124,9 +171,12 @@ func sendReady(dir http.Dir, target string) (readyState, error) {
 	if sc.Trigger != triggerManual {
 		return readyState{}, errNotManual
 	}
-	open := false
+	open, owned := false, false
 	for _, a := range sc.Annotations {
-		open = open || isOpen(a)
+		if isOpen(a) {
+			open = true
+			owned = owned || rt.owns(lastVia(a))
+		}
 	}
 	if !open {
 		return readyState{}, errNothingOpen
@@ -135,19 +185,32 @@ func sendReady(dir http.Dir, target string) (readyState, error) {
 	rp := readyPath(dir, target)
 	// Not a regular file is not a batch of ours: replaced, the rename does not follow it.
 	if regular, _ := isRegular(rp); regular {
-		if st := readReady(rp); st.State == readySent || st.State == readyWorking {
+		rf, err := loadReady(rp)
+		if st := stateOf(rf, err); st.State == readySent || st.State == readyWorking {
+			if !rt.owns(st.Via) {
+				return readyState{}, refusal{"batch pending for", rt.owner(st.Via)}
+			}
+			// A garbage file has no via to rewrite: left to the agent that wrote it. Routing off
+			// knows no owner to rewrite it to.
+			if st.Via == rt.via || err != nil || !rt.routed() {
+				return st, nil
+			}
+			rf.Via = rt.via
+			if err := writeReady(rp, rf); err != nil {
+				return readyState{}, err
+			}
+			st.Via = rt.via
 			return st, nil
 		}
 	}
+	if !owned {
+		return readyState{}, refusal{"nothing open for", rt.via}
+	}
 	now := time.Now().Format(time.RFC3339)
-	data, err := json.Marshal(readyFile{SentAt: &now})
-	if err != nil {
+	if err := writeReady(rp, readyFile{SentAt: &now, Via: rt.via}); err != nil {
 		return readyState{}, err
 	}
-	if err := replaceFile(rp, "."+filepath.Base(rp)+"-*", 0o644, append(data, '\n')); err != nil {
-		return readyState{}, fmt.Errorf("write %s: %w", rp, err)
-	}
-	return readyState{State: readySent, SentAt: &now}, nil
+	return readyState{State: readySent, SentAt: &now, Via: rt.via}, nil
 }
 
 // cancelReady removes the ready file under the sidecar's lock: unlocked, an agent claiming
@@ -187,11 +250,22 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request, dir http.Di
 		return
 	}
 
+	// A POST body names the instance the reader chose; none is the first target.
+	var body struct {
+		Via int `json:"via"`
+	}
+	if r.Method == http.MethodPost && r.ContentLength != 0 {
+		if err := decodeJSONBody(w, r, maxReadyBytes, &body); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+	}
+	rt, info := s.route(dir, target, body.Via)
 	var st readyState
 	var err error
 	switch r.Method {
 	case http.MethodPost:
-		st, err = sendReady(dir, target)
+		st, err = sendReady(dir, target, rt)
 	case http.MethodDelete:
 		st = readyState{State: readyNone}
 		err = cancelReady(dir, target)
@@ -200,7 +274,7 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request, dir http.Di
 		return
 	}
 	switch {
-	case errors.Is(err, errNotManual), errors.Is(err, errNothingOpen):
+	case errors.Is(err, errNotManual), errors.Is(err, errNothingOpen), errors.As(err, new(refusal)):
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	case err != nil:
@@ -211,7 +285,8 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request, dir http.Di
 
 	setNoCacheHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(st); err != nil {
+	resp := readyResponse{routingInfo: info, Ready: st}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Println(err)
 	}
 }

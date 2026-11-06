@@ -14,3 +14,4 @@
 | 010 | [Manual trigger and settings](010-manual-trigger.md) | shipped |
 | 011 | [GitHub heading ids](011-github-heading-ids.md) | draft |
 | 012 | [Annotations on a repeated passage](012-annotation-repeated-passage.md) | draft |
+| 013 | [Instance registry and message routing](013-instance-routing.md) | shipped |

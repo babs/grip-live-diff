@@ -51,7 +51,8 @@ file under the user's config directory, shared by every instance whatever its po
 - The agent claims the batch: under the sidecar flock, if `pid` is null it writes its own PID and
   `claimed_at`, otherwise another agent holds it and it leaves the batch alone. The PID is the one of
   the agent's long-lived process, not of the shell it runs a command in (in Claude Code, the shell's
-  `$PPID`).
+  `$PPID`). *Superseded by [013](013-instance-routing.md): the agent claims with
+  `grip-live-diff pending --claim`, which takes the flock itself.*
 - The page shows the state of the ready file: "sent" (no `pid`), "agent working · pid N" (`pid` set
   and alive), "agent gone · pid N" (`pid` set, no such process). The server checks liveness when it
   answers the GET, on its own host.
@@ -61,7 +62,8 @@ file under the user's config directory, shared by every instance whatever its po
 - Switching back to auto removes a pending ready file: in auto the agent acts anyway.
 - The sidecar header gains a paragraph: when `trigger` is `"manual"`, do not handle entries on a
   sidecar change; wait for the ready file, claim it with your PID, handle every open entry, then
-  delete the ready file last.
+  delete the ready file last. *Superseded by [013](013-instance-routing.md): claim with
+  `grip-live-diff pending --claim`, handle the entries it lists.*
 - The page refreshes its annotation state when the ready file appears or goes, as it does for the
   sidecar (same `annotations` message, no reload).
 - Setting `hold_reload`: when on and the ready file exists, a reload due to the markdown waits until
@@ -101,7 +103,8 @@ file under the user's config directory, shared by every instance whatever its po
 - [x] **AC9** Given the ready file, switching to auto removes it.
 - [x] **AC10** The sidecar header states the manual rule: wait for the ready file, claim it with
       the PID of the long-lived agent process under the flock, leave it if already claimed, handle
-      every open entry, delete the ready file last.
+      every open entry, delete the ready file last. *(claim superseded by
+      [013](013-instance-routing.md))*
 - [x] **AC11** Given `hold_reload` on and the ready file present, writing the markdown does not
       reload the page; removing the ready file reloads it once. Given it off, the markdown write
       reloads at once (headless run).

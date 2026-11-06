@@ -5,12 +5,14 @@
   // as "my%20doc.md".
   var ENDPOINT = "/__annotations?path=" + encodeURIComponent(decodeURIComponent(location.pathname));
   var READY = ENDPOINT.replace("/__annotations?", "/__annotations/ready?");
+  // The instance the reader sends to, per document: a reload keeps it, another tab does not.
+  var VIA_KEY = "grip-live-diff-via:" + decodeURIComponent(location.pathname);
   // Text that is not the document: diff deletions, diagrams and formulas (their rendered
   // text does not exist in the source), the code-block copy buttons.
   var SKIP = "del.gg-del, .mermaid, .math, mjx-container, script, style, button, [hidden]";
 
   var article, model, entries = [], doc = { annotations: [] }, pending = null, current = null, hovered = null;
-  var bubble, tip, tipThread, box, textarea, meta, hitFrame;
+  var bubble, tip, tipThread, box, textarea, meta, hitFrame, banner;
   // A reload offered while the reader is mid-selection (pointer down), has the bubble to
   // click, a box open, or (hold_reload on) a batch sent is held, then run by release() once
   // none of that is left.
@@ -195,6 +197,65 @@
     }
     drawList();
     drawTrigger();
+    drawBanner();
+  }
+
+  function targets() {
+    return doc.targets || [];
+  }
+
+  function live() {
+    return doc.live || [];
+  }
+
+  // The stored choice while it is a target, else the first target; 0 lets the server pick.
+  function chosen() {
+    var stored = 0;
+    try {
+      stored = Number(sessionStorage.getItem(VIA_KEY));
+    } catch (e) {}
+    return targets().indexOf(stored) >= 0 ? stored : targets()[0] || 0;
+  }
+
+  function choose(port) {
+    try {
+      sessionStorage.setItem(VIA_KEY, String(port));
+    } catch (e) {}
+  }
+
+  // Above the document, outside the article: its text is not part of the model.
+  function drawBanner() {
+    var others = targets().filter(function (p) {
+      return p !== doc.self;
+    });
+    banner.hidden = !others.length;
+    // Rebuilt only on a change: a rebuild under the pointer would close an open selector.
+    var key = others.length ? JSON.stringify([doc.self, targets(), chosen()]) : "";
+    if (banner.getAttribute("data-key") === key) return;
+    banner.setAttribute("data-key", key);
+    banner.replaceChildren();
+    if (!others.length) return;
+    var label = document.createElement("label"), select = document.createElement("select");
+    targets().forEach(function (port) {
+      var option = document.createElement("option");
+      option.value = String(port);
+      option.textContent = ":" + port + (port === doc.self ? " (this page)" : "");
+      option.selected = port === chosen();
+      select.append(option);
+    });
+    select.addEventListener("change", function () {
+      choose(Number(select.value));
+      drawBanner();
+    });
+    label.append("Send to: ", select);
+    banner.append("Also open in " + others.map(function (p) { return ":" + p; }).join(", ") + ". ", label);
+  }
+
+  // A ready answer carries the registry read too.
+  function routed(d) {
+    doc.self = d.self;
+    doc.targets = d.targets;
+    doc.live = d.live;
   }
 
   function manual() {
@@ -205,6 +266,12 @@
   function queued() {
     var state = doc.ready && doc.ready.state;
     return manual() && (state === "sent" || state === "working");
+  }
+
+  // A sent batch whose instance is gone: Go hands it to its owner, which the server writes as via.
+  function orphaned() {
+    var ready = doc.ready || {};
+    return queued() && ready.state === "sent" && !!ready.via && live().indexOf(ready.via) < 0;
   }
 
   function drawTrigger() {
@@ -224,9 +291,9 @@
     // Gone too: with nothing open, ✕ is the only way to clear a dead agent's batch.
     cancel.hidden = !manual() || ready.state === "none";
     go.setAttribute("data-state", ready.state);
-    go.textContent = { sent: "Sent", working: "Agent working · pid " + ready.pid, gone: "Agent gone · pid " + ready.pid }[ready.state] || "Go";
-    go.disabled = queued() || !open;
-    go.title = queued() ? "The agent has the batch; ✕ cancels it" : !open ? "Nothing to send: no entry waits for the agent" : ready.state === "gone" ? "The agent exited: send the batch again" : "Send every open entry to the agent";
+    go.textContent = { sent: "Sent" + (ready.via ? " → :" + ready.via + (orphaned() ? " (gone)" : "") : ""), working: "Agent working · pid " + ready.pid, gone: "Agent gone · pid " + ready.pid }[ready.state] || "Go";
+    go.disabled = (queued() && !orphaned()) || !open;
+    go.title = orphaned() ? "The instance of the batch is gone: send it to the one that owns it" : queued() ? "The agent has the batch; ✕ cancels it" : !open ? "Nothing to send: no entry waits for the agent" : ready.state === "gone" ? "The agent exited: send the batch again" : "Send every open entry to the agent";
     var status = document.getElementById("annotation-trigger-state"), label = manual() ? go.textContent : "";
     if (status.textContent !== label) status.textContent = label;
     // Live only once the first label is in: a page load must not announce it.
@@ -270,12 +337,15 @@
     get()
       .then(function (d) {
         if (!fresh(n)) return;
-        if (d.trigger !== doc.trigger || JSON.stringify(d.annotations) !== JSON.stringify(doc.annotations)) {
+        // A gone instance changes the messages routed to it: redrawn whole too.
+        if (d.trigger !== doc.trigger || JSON.stringify(d.annotations) !== JSON.stringify(doc.annotations) || JSON.stringify(d.live) !== JSON.stringify(doc.live)) {
           doc = d;
           draw();
         } else {
           doc.ready = d.ready;
+          routed(d);
           drawTrigger();
+          drawBanner();
         }
         release();
       })
@@ -311,8 +381,12 @@
 
   // POST sends the batch, DELETE cancels it. A 409 means the page is behind the sidecar.
   function sendReady(method) {
-    var n = ++asked;
-    fetch(READY, { method: method })
+    var n = ++asked, init = { method: method };
+    if (method === "POST") {
+      init.headers = { "Content-Type": "application/json" };
+      init.body = JSON.stringify({ via: chosen() });
+    }
+    fetch(READY, init)
       .then(function (r) {
         // Refetched first: the redraw would clear a message set before it.
         if (r.status === 409) {
@@ -326,7 +400,8 @@
         return r.json().then(function (st) {
           triggerError("");
           if (!fresh(n)) return;
-          doc.ready = st;
+          doc.ready = st.ready;
+          routed(st);
           draw();
           release();
         });
@@ -442,6 +517,12 @@
     return m.by === "reader" ? "you" : m.by;
   }
 
+  // Where a reader message went, when not to this instance's agent.
+  function routeOf(m) {
+    if (m.by !== "reader" || !m.via || m.via === doc.self) return "";
+    return " → :" + m.via + (live().indexOf(m.via) < 0 ? " (gone)" : "");
+  }
+
   // A link to the diff against the version the entry was written on, when the server kept
   // a copy of it; the lost passage shows there struck through.
   function revisionLink(a) {
@@ -462,7 +543,7 @@
     messages.forEach(function (m) {
       var p = document.createElement("p"), label = document.createElement("small"), text = document.createElement("span");
       p.className = "annot-msg annot-msg-" + (m.by === "reader" ? "reader" : "agent");
-      label.textContent = whoOf(m) + (whenOf(m) ? " · " + whenOf(m) : "");
+      label.textContent = whoOf(m) + (whenOf(m) ? " · " + whenOf(m) : "") + routeOf(m);
       text.textContent = m.text;
       p.append(label, text);
       container.append(p);
@@ -527,7 +608,7 @@
     return fetch(ENDPOINT, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ annotations: list }),
+      body: JSON.stringify({ annotations: list, via: chosen() }),
     })
       .then(function (r) {
         if (!r.ok) throw new Error("annotations: " + r.status);
@@ -779,6 +860,10 @@
     });
 
     document.body.append(bubble, tip, box);
+    banner = document.createElement("aside");
+    banner.className = "annotations-banner";
+    banner.hidden = true;
+    article.before(banner);
 
     var docButton = document.getElementById("annotation-document");
     if (docButton) {

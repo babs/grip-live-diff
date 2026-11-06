@@ -84,16 +84,17 @@ func saveSettings(path string, st settings) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // a config dir, readable like any other
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
-	if err := replaceFile(path, ".settings-*.json", 0o644, append(data, '\n')); err != nil {
+	if err := replaceFile(path, 0o644, append(data, '\n')); err != nil {
 		return fmt.Errorf("save settings to %s: %w", path, err)
 	}
 	return nil
 }
 
-// replaceFile writes data through a temp file named after pattern in path's directory, so a
-// reader never sees a half-written file. CreateTemp makes it 0600, hence the chmod to mode.
-func replaceFile(path, pattern string, mode os.FileMode, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), pattern)
+// replaceFile writes data through a temp file in path's directory, so a reader never sees a
+// half-written file. The temp name starts with a dot: it stays out of a served listing and of
+// the registry scan. CreateTemp makes it 0600, hence the chmod to mode.
+func replaceFile(path string, mode os.FileMode, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
 	if err != nil {
 		return err
 	}

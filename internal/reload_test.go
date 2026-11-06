@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -462,6 +463,48 @@ func eventually(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("expected %s", what)
 }
 
+// 013-AC3: a page stays listed releaseAfter past its last socket, so a reload keeps it; the
+// registry hears of a page that comes or goes, not of a socket.
+func TestPagesKeptPastTheirLastSocket(t *testing.T) {
+	t.Parallel()
+
+	r := newReloader()
+	r.releaseAfter = 300 * time.Millisecond
+	var mu sync.Mutex
+	changes := 0
+	r.onPages = func() {
+		mu.Lock()
+		defer mu.Unlock()
+		changes++
+	}
+	changed := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return changes
+	}
+	listed := func() bool { return slices.Equal(r.openPages(), []string{"/a.md"}) }
+
+	r.enter("/a.md")
+	r.enter("/a.md")
+	r.leave("/a.md")
+	r.leave("/a.md")
+	time.Sleep(r.releaseAfter / 2)
+	if !listed() || changed() != 1 {
+		t.Fatalf("expected the page listed within the grace, one change, got %v %d", r.openPages(), changed())
+	}
+	// A reload: a socket comes back within the grace, and the first delay must not drop it.
+	r.enter("/a.md")
+	time.Sleep(r.releaseAfter)
+	if !listed() || changed() != 1 {
+		t.Fatalf("expected a reload to keep the page, got %v %d", r.openPages(), changed())
+	}
+	r.leave("/a.md")
+	eventually(t, "the page dropped after the grace", func() bool { return len(r.openPages()) == 0 })
+	if n := changed(); n != 2 {
+		t.Fatalf("expected two changes, got %d", n)
+	}
+}
+
 func TestWatchWalksNothing(t *testing.T) {
 	t.Parallel()
 
@@ -628,30 +671,34 @@ func TestDirectoryReleasedAfterLastPage(t *testing.T) {
 	}
 }
 
-// A timer that fired while a page came back and left again, and waited on the lock, finds
-// another timer in its place and releases nothing.
-func TestReleaseIgnoresAStaleTimer(t *testing.T) {
+// A timer that fired while a user came back and left again, and waited on the lock, finds
+// another timer in its place and releases nothing; the current one releases.
+func TestRefCountIgnoresAStaleTimer(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	r := watchedReloader(t, dir)
-	r.unsubscribe(r.subscribe([]string{"/"}))
-	r.subMu.Lock()
-	sub := r.subs["/"]
-	stale := sub.timer
-	r.subMu.Unlock()
-	r.unsubscribe(r.subscribe([]string{"/"}))
-
-	r.release("/", sub, &stale)
-	if !isWatched(r, "/") {
-		t.Fatal("expected / still watched: the timer is stale")
+	var mu sync.Mutex
+	var c refCount
+	released := make(chan struct{}, 2)
+	release := func() func() {
+		released <- struct{}{}
+		return nil
 	}
-	r.subMu.Lock()
-	current := sub.timer
-	r.subMu.Unlock()
-	r.release("/", sub, &current)
-	if isWatched(r, "/") {
-		t.Fatal("expected / released by the current timer")
+	mu.Lock()
+	c.acquire()
+	c.drop(&mu, 0, release)
+	time.Sleep(50 * time.Millisecond) // fired, waiting on mu
+	c.acquire()
+	c.drop(&mu, 200*time.Millisecond, release)
+	mu.Unlock()
+	select {
+	case <-released:
+		t.Fatal("expected the stale timer to release nothing")
+	case <-time.After(100 * time.Millisecond):
+	}
+	select {
+	case <-released:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected the current timer to release")
 	}
 }
 

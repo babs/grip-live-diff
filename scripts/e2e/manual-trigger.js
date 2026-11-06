@@ -2,6 +2,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync, spawn } = require("child_process");
+const { check, connect, consoleErrors, ev, run, send, sleep, waitFor } = require("./cdp");
 
 const [port, cdpPort, work] = process.argv.slice(2);
 if (!work || !process.env.XDG_CONFIG_HOME) {
@@ -18,59 +19,14 @@ const settingsFile = process.platform === "darwin"
   ? path.join(work, "home", "Library", "Application Support", "grip-live-diff", "settings.json")
   : path.join(process.env.XDG_CONFIG_HOME, "grip-live-diff", "settings.json");
 
-let ws, seq = 0;
-const waiting = new Map();
-function send(method, params = {}) {
-  // A send on a closed socket is dropped silently and would never settle.
-  if (ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("CDP socket closed"));
-  const id = ++seq;
-  ws.send(JSON.stringify({ id, method, params }));
-  // A reply that never comes (dialog, never-settling promise) would hang the run with the socket open.
-  return new Promise((res, rej) => {
-    const t = setTimeout(() => {
-      waiting.delete(id);
-      rej(new Error("CDP " + method + " got no reply within 10 s"));
-    }, 10000);
-    waiting.set(id, { res: (v) => (clearTimeout(t), res(v)), rej: (e) => (clearTimeout(t), rej(e)) });
-  });
-}
-async function ev(expr) {
-  const r = await send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true });
-  if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
-  return r.result.value;
-}
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function waitFor(expr, ms = 4000) {
-  const t0 = Date.now();
-  let lastErr;
-  for (;;) {
-    try {
-      if (await ev(expr)) return Date.now() - t0;
-    } catch (e) {
-      lastErr = e;
-    }
-    if (Date.now() - t0 > ms) throw new Error("timeout: " + expr + (lastErr ? " (last error: " + lastErr.message + ")" : ""));
-    await sleep(100);
-  }
-}
 const ui = () =>
   ev(`(() => { const m = document.getElementById("annotation-mode"), g = document.getElementById("annotation-go"), c = document.getElementById("annotation-cancel");
     return { mode: m.hidden ? "(hidden)" : m.textContent + " pressed=" + m.getAttribute("aria-pressed"), go: g.hidden ? "(hidden)" : g.textContent + (g.disabled ? " [disabled: " + g.title + "]" : " [enabled]"),
       cancel: c.hidden ? "(hidden)" : "visible", err: document.getElementById("annotation-trigger-error").textContent, marker: window.__marker || null } })()`);
+// The label of Go once the batch is sent to this instance.
+const SENT = "Sent → :" + port;
+const waitSent = () => waitFor(`document.getElementById("annotation-go").textContent === ${JSON.stringify(SENT)}`);
 const sidecarJSON = () => JSON.parse(fs.readFileSync(sidecar, "utf8").replace(/^\/\/.*$/gm, ""));
-let failures = 0;
-const consoleErrors = [];
-let completed = false;
-// A pending promise nobody settles lets node drain and exit 0 without a verdict.
-process.on("beforeExit", () => {
-  if (completed) return;
-  console.error("ERROR run ended before completion");
-  process.exit(3);
-});
-function check(label, ok, extra) {
-  if (!ok) failures++;
-  console.log((ok ? "PASS " : "FAIL ") + label + (extra !== undefined ? "  " + JSON.stringify(extra) : ""));
-}
 // Waits until no annotations GET has started for 1 s: pending sidecar events have landed.
 async function settle() {
   let last = await ev(`window.__gets`), since = Date.now();
@@ -82,31 +38,8 @@ async function settle() {
 }
 const click = (id) => ev(`document.getElementById(${JSON.stringify(id)}).click()`);
 
-(async () => {
-  const list = await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`)).json();
-  ws = new WebSocket(list.find((t) => t.type === "page").webSocketDebuggerUrl);
-  ws.onmessage = (m) => {
-    const d = JSON.parse(m.data);
-    if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error") consoleErrors.push("console: " + d.params.args.map((x) => x.description || x.value).join(" ").slice(0, 200));
-    if (d.method === "Runtime.exceptionThrown") consoleErrors.push("exception: " + (d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text).slice(0, 200));
-    if (d.method === "Page.javascriptDialogOpening") {
-      check("no browser dialog", false, d.params.message);
-      send("Page.handleJavaScriptDialog", { accept: false }).catch(() => {});
-    }
-    if (d.id && waiting.has(d.id)) {
-      const w = waiting.get(d.id);
-      waiting.delete(d.id);
-      if (d.error) w.rej(new Error("CDP " + d.error.message));
-      else w.res(d.result);
-    }
-  };
-  ws.onclose = () => {
-    for (const w of waiting.values()) w.rej(new Error("CDP socket closed"));
-    waiting.clear();
-  };
-  await new Promise((r) => (ws.onopen = r));
-  await send("Page.enable");
-  await send("Runtime.enable");
+run(async () => {
+  await connect(cdpPort);
   // Page hooks: GET counter, one-shot GET delay, forced PUT failure, live-region mutation log.
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `
     window.__liveLog = []; window.__gets = 0; window.__delayNextGet = 0; window.__failPut = false;
@@ -159,7 +92,7 @@ const click = (id) => ev(`document.getElementById(${JSON.stringify(id)}).click()
 
   // Go.
   await click("annotation-go");
-  await waitFor(`document.getElementById("annotation-go").textContent === "Sent"`);
+  await waitSent();
   check("ready file written", fs.existsSync(ready), fs.readFileSync(ready, "utf8").trim());
   console.log("sent ui", await ui());
 
@@ -185,7 +118,7 @@ const click = (id) => ev(`document.getElementById(${JSON.stringify(id)}).click()
 
   // A GET sent before ✕ but answered after it must not bring "working" back.
   await click("annotation-go");
-  await waitFor(`document.getElementById("annotation-go").textContent === "Sent"`);
+  await waitSent();
   fs.writeFileSync(ready, JSON.stringify({ sent_at: new Date().toISOString(), pid: process.pid, claimed_at: new Date().toISOString() }));
   await waitFor(`document.getElementById("annotation-go").textContent === "Agent working · pid ${process.pid}"`);
   await sleep(300);
@@ -199,9 +132,9 @@ const click = (id) => ev(`document.getElementById(${JSON.stringify(id)}).click()
   // Cancel, with focus handed between Go and ✕ and the state announced.
   await ev(`document.getElementById("annotation-go").focus()`);
   await click("annotation-go");
-  await waitFor(`document.getElementById("annotation-go").textContent === "Sent"`);
+  await waitSent();
   check("focus Go -> Go disabled -> focus on ✕", (await ev(`document.activeElement.id`)) === "annotation-cancel", await ev(`document.activeElement.id`));
-  check("live region says Sent", (await ev(`(() => { const s = document.getElementById("annotation-trigger-state"); return s.getAttribute("aria-live") + ":" + s.textContent })()`)) === "polite:Sent");
+  check("live region says Sent", (await ev(`(() => { const s = document.getElementById("annotation-trigger-state"); return s.getAttribute("aria-live") + ":" + s.textContent })()`)) === "polite:" + SENT);
   await click("annotation-cancel");
   await waitFor(`document.getElementById("annotation-go").textContent === "Go"`);
   check("cancel removed ready file", !fs.existsSync(ready), await ui());
@@ -216,7 +149,7 @@ const click = (id) => ev(`document.getElementById(${JSON.stringify(id)}).click()
   check("settings.json hold_reload true", JSON.parse(fs.readFileSync(settingsFile, "utf8")).hold_reload === true, fs.readFileSync(settingsFile, "utf8").trim());
   await ev(`document.getElementById("settings-menu").hidePopover()`);
   await click("annotation-go");
-  await waitFor(`document.getElementById("annotation-go").textContent === "Sent"`);
+  await waitSent();
   fs.appendFileSync(md, "\nheld line\n");
   await sleep(2000);
   check("hold on + sent: md write did not reload", (await ui()).marker === "m1");
@@ -232,7 +165,7 @@ const click = (id) => ev(`document.getElementById(${JSON.stringify(id)}).click()
   const child = spawn("sleep", ["60"], { stdio: "ignore" });
   fs.writeFileSync(sleepPidFile, String(child.pid));
   await click("annotation-go");
-  await waitFor(`document.getElementById("annotation-go").textContent === "Sent"`);
+  await waitSent();
   fs.writeFileSync(ready, JSON.stringify({ sent_at: new Date().toISOString(), pid: child.pid, claimed_at: new Date().toISOString() }));
   await waitFor(`document.getElementById("annotation-go").textContent === "Agent working · pid ${child.pid}"`);
   // The liveness poll leaves a selection in the list alone.
@@ -264,7 +197,7 @@ const click = (id) => ev(`document.getElementById(${JSON.stringify(id)}).click()
 
   // Hold off: same situation, reload at once.
   await click("annotation-go");
-  await waitFor(`document.getElementById("annotation-go").textContent === "Sent"`);
+  await waitSent();
   await ev(`document.querySelector("input[name=settings-hold_reload]").click()`);
   await waitFor(`document.documentElement.getAttribute("data-hold-reload") === "false"`);
   await sleep(300);
@@ -336,7 +269,7 @@ const click = (id) => ev(`document.getElementById(${JSON.stringify(id)}).click()
 
   // The agent deletes the entry of the open box; only the poll sees it.
   await click("annotation-go");
-  await waitFor(`document.getElementById("annotation-go").textContent === "Sent"`);
+  await waitSent();
   fs.writeFileSync(ready, JSON.stringify({ sent_at: new Date().toISOString(), pid: process.pid, claimed_at: new Date().toISOString() }));
   await waitFor(`document.getElementById("annotation-go").textContent === "Agent working · pid ${process.pid}"`);
   await settle();
@@ -373,12 +306,4 @@ const click = (id) => ev(`document.getElementById(${JSON.stringify(id)}).click()
   // The forced PUT failure logs one console.error by design; any exception is a bug.
   const forced = consoleErrors.filter((m) => /^console: Error: forced\b/.test(m));
   check("no page exceptions / console errors", forced.length <= 1 && consoleErrors.length === forced.length, consoleErrors);
-
-  console.log(failures ? failures + " FAILURE(S)" : "ALL PASS");
-  completed = true;
-  ws.close();
-  process.exit(failures ? 1 : 0);
-})().catch((e) => {
-  console.error("ERROR", e);
-  process.exit(2);
 });

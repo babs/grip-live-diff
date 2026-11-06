@@ -5,14 +5,17 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 readonly HERE ROOT
 readonly PORT="${GLD_E2E_PORT:-18419}"
+readonly PORT_B="${GLD_E2E_PORT_B:-18420}"
 readonly CDP_PORT="${GLD_E2E_CDP_PORT:-19229}"
 readonly MAC_CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0")   (no arguments)
-Runs the spec 010 manual trigger e2e (AC8, AC11): builds gld, drives headless Chrome over CDP.
-Env: GLD_E2E_CHROME (browser binary), GLD_E2E_PORT (default 18419), GLD_E2E_CDP_PORT (default 19229).
+Runs the spec 010 manual trigger e2e (AC8, AC11) and the spec 013 instance routing e2e (AC14):
+builds gld, drives headless Chrome over CDP.
+Env: GLD_E2E_CHROME (browser binary), GLD_E2E_PORT (default 18419), GLD_E2E_PORT_B (second
+instance, default 18420), GLD_E2E_CDP_PORT (default 19229).
 EOF
 }
 
@@ -53,8 +56,8 @@ port_free() {
   # 7 = connection refused; any other outcome means something listens there.
   [[ "$rc" -eq 7 ]]
 }
-for p in "$PORT" "$CDP_PORT"; do
-  port_free "$p" || die "port $p already in use (set GLD_E2E_PORT / GLD_E2E_CDP_PORT)"
+for p in "$PORT" "$PORT_B" "$CDP_PORT"; do
+  port_free "$p" || die "port $p already in use (set GLD_E2E_PORT / GLD_E2E_PORT_B / GLD_E2E_CDP_PORT)"
 done
 
 tmp="$(mktemp -d)"
@@ -93,6 +96,7 @@ stop() {
 cleanup() {
   stop "$tmp/sleep.pid" "sleep 60"
   stop "$tmp/server.pid" "$tmp/gld *"
+  stop "$tmp/b.pid" "$tmp/gld *"
   stop "$tmp/chrome.pid" "*--user-data-dir=$tmp/chrome *"
   rm -rf "$tmp"
   if [[ -e "$tmp" ]]; then echo "warning: temp dir left: $tmp" >&2; fi
@@ -104,14 +108,21 @@ dump_logs() {
   cat "$tmp/server.log" >&2
   echo "--- chrome log" >&2
   cat "$tmp/chrome.log" >&2
+  if [[ -f "$tmp/b.log" ]]; then
+    echo "--- instance B log" >&2
+    cat "$tmp/b.log" >&2
+  fi
 }
 
 (cd "$ROOT" && go build -o "$tmp/gld" .) || die "go build failed"
 
 mkdir -p "$tmp/docs" "$tmp/config" "$tmp/home" "$tmp/chrome"
 printf '# Test\n\nThe quick brown fox jumps over the lazy dog.\n' >"$tmp/docs/test.md"
+printf '# Route\n\nOne page, two instances.\n' >"$tmp/docs/route.md"
 # Keeps the test's settings.json away from the user's real config; macOS ignores XDG, hence HOME.
 export XDG_CONFIG_HOME="$tmp/config"
+# Same for the instance registry, under the user cache dir.
+export XDG_CACHE_HOME="$tmp/cache"
 
 HOME="$tmp/home" "$tmp/gld" -b=false -H 127.0.0.1 -p "$PORT" "$tmp/docs/test.md" >"$tmp/server.log" 2>&1 &
 echo "$!" >"$tmp/server.pid"
@@ -134,6 +145,10 @@ if [[ "$ready" -ne 1 ]]; then
 fi
 
 if ! node "$HERE/manual-trigger.js" "$PORT" "$CDP_PORT" "$tmp"; then
+  dump_logs
+  exit 1
+fi
+if ! node "$HERE/instance-routing.js" "$PORT" "$PORT_B" "$CDP_PORT" "$tmp"; then
   dump_logs
   exit 1
 fi
